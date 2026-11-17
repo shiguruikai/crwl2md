@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import posixpath
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, overload
 from urllib.parse import unquote, urlparse
@@ -223,8 +223,13 @@ def build_filter_chain(config: CrawlConfig) -> FilterChain:
 def _flatten_crawl_results(raw_result: Any) -> list[CrawlResult]:
     if isinstance(raw_result, CrawlResult):
         return [raw_result]
+    if isinstance(raw_result, (str, bytes, Mapping)):
+        return []
     if isinstance(raw_result, Iterable):
-        return [item for item in raw_result if isinstance(item, CrawlResult)]
+        results: list[CrawlResult] = []
+        for item in raw_result:
+            results.extend(_flatten_crawl_results(item))
+        return results
     return []
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from crawl4ai import CrawlResult
+from crawl4ai.models import CrawlResultContainer
 
 from web2md import CrawlConfig, crawl_site, crawl_site_sync
 from web2md.cli import main
@@ -15,10 +16,12 @@ from web2md.crawler import build_filter_chain, compile_url_pattern
 class _FakeCrawler:
     """ネットワーク通信なしで crawl_site をテストするためのフェイククローラー。"""
 
-    def __init__(self, results: list[CrawlResult]) -> None:
+    def __init__(self, results: list[CrawlResult] | list[CrawlResultContainer[CrawlResult]]) -> None:
         self._results = results
 
-    async def arun(self, url: str, config: object = None) -> list[CrawlResult]:
+    async def arun(
+        self, url: str, config: object = None
+    ) -> list[CrawlResult] | list[CrawlResultContainer[CrawlResult]]:
         return self._results
 
 
@@ -173,7 +176,7 @@ def test_python_api_crawl_site_sync_with_direct_args(tmp_path: Path):
     # Arrange
     html = "<html><body><main><h1>Intro</h1><p>Welcome.</p></main></body></html>"
     fake_crawler = _FakeCrawler(
-        [CrawlResult(url="https://docs.elgato.com/streamdeck/cli/intro", html=html, success=True)]
+        [CrawlResultContainer(CrawlResult(url="https://docs.elgato.com/streamdeck/cli/intro", html=html, success=True))]
     )
     out_dir = tmp_path / "cli_out"
 
