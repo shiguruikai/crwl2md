@@ -7,8 +7,6 @@ import json
 import time
 from dataclasses import dataclass
 
-import httpx
-
 from web2md.extractors import (
     EXTRACTOR_METHODS,
     ExtractorType,
@@ -196,7 +194,7 @@ def _extract_order_from_toc(toc_md: str) -> list[str]:
     return [line.split("](")[1].split(")")[0] for line in toc_md.splitlines() if line.startswith("- [")]
 
 
-def benchmark_toc_generation(with_ollama: bool, ollama_model: str) -> None:
+def benchmark_toc_generation() -> None:
     """目次（index.md）生成手法を比較する。"""
     print("## 目次（index.md）生成手法の比較\n")
     seed_url = "https://docs.example.com/docs/sdk/getting-started"
@@ -260,28 +258,6 @@ def benchmark_toc_generation(with_ollama: bool, ollama_model: str) -> None:
         f"- 手法 B（URL パス階層 + サイドバー DOM 順）: {ms_b:.2f} ms -> sdk 配下順序: {_extract_order_from_toc(toc_b['sdk/index.md'])}"
     )
 
-    if with_ollama:
-        prompt = (
-            "Organize these documentation pages into a concise Markdown table of contents (index.md) "
-            "using only the provided relative paths and descriptions. Keep output short.\n\n"
-            + "\n".join(f"- {d.relpath}: {d.title} — {d.description}" for d in docs)
-        )
-        t2 = time.perf_counter()
-        resp = httpx.post(
-            "http://localhost:11434/api/generate",
-            json={"model": ollama_model, "prompt": prompt, "stream": False},
-            timeout=120.0,
-        )
-        resp.raise_for_status()
-        ms_c = (time.perf_counter() - t2) * 1000
-        output = str(resp.json().get("response", "")).strip()
-        all_paths_present = all(d.relpath in output for d in docs)
-        print(
-            f"- 手法 C（Ollama `{ollama_model}`）: {ms_c:.1f} ms / 全パス保持={all_paths_present} / 文字数={len(output)}"
-        )
-        print("\n### Ollama 生成目次サンプル\n")
-        print(output)
-
 
 def benchmark_metadata_extraction() -> None:
     """メタデータ抽出の動作確認を表示する。"""
@@ -295,13 +271,11 @@ def benchmark_metadata_extraction() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare HTML-to-Markdown and TOC generation methods.")
     parser.add_argument("--iterations", type=int, default=5, help="Benchmark iterations per fixture (default: 5).")
-    parser.add_argument("--with-ollama", action="store_true", help="Also benchmark local Ollama TOC generation.")
-    parser.add_argument("--ollama-model", default="gemma4:12b", help="Ollama model name (default: gemma4:12b).")
     parser.add_argument("--dump", action="store_true", help="Print full extracted Markdown samples for inspection.")
     args = parser.parse_args()
 
     benchmark_extractors(iterations=args.iterations, dump=args.dump)
-    benchmark_toc_generation(with_ollama=args.with_ollama, ollama_model=args.ollama_model)
+    benchmark_toc_generation()
     benchmark_metadata_extraction()
 
 

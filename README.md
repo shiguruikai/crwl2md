@@ -11,9 +11,10 @@ task setup
 # 単一ページ（URL またはローカル HTML）の変換
 uv run web2md convert https://example.com/docs/intro -o intro.md
 
-# ドキュメントサイトのクロールと目次生成（URL パターン指定）
+# ドキュメントサイトのクロールと目次生成（URL パターン・フロントマター項目指定）
 uv run web2md crawl https://docs.elgato.com/streamdeck/cli/intro \
   --include "https://docs.elgato.com/streamdeck/cli/**" \
+  --frontmatter-fields title,description,source,timestamp \
   -o ./output/streamdeck-cli
 ```
 

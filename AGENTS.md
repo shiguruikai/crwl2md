@@ -14,7 +14,7 @@
 - Python 3.14, uv, mise, go-task（`task`）
 - Crawl4AI（Playwright ベースの取得・深さクロール）
 - BeautifulSoup4 + lxml + markdownify（既定の `dom-markdownify` 抽出）
-- readability-lxml, trafilatura, httpx, pydantic（比較・代替抽出および設定モデル）
+- httpx, pydantic（単一ページ取得・設定モデル）
 - ruff, pyright, pytest, pytest-asyncio, tombi, markdownlint-cli2
 
 ## コマンド
@@ -25,20 +25,20 @@
   - `task lint`: `tombi lint`, `markdownlint-cli2`, `ruff check`, `ruff format --check`, `pyright` を実行する。
   - `task test`: `uv run pytest` を実行する。
 - CLI 実行例:
-  - `uv run web2md convert <URLまたはHTMLファイル> [-o OUTPUT] [--method dom-markdownify|crawl4ai|readability|trafilatura] [--frontmatter]`
-  - `uv run web2md crawl https://docs.elgato.com/streamdeck/cli/intro --include "https://docs.elgato.com/streamdeck/cli/**" -o output/cli [--method ...] [--frontmatter]`
+  - `uv run web2md convert <URLまたはHTMLファイル> [-o OUTPUT] [--method dom-markdownify|crawl4ai] [--frontmatter] [--frontmatter-fields title,description,source,timestamp]`
+  - `uv run web2md crawl https://docs.elgato.com/streamdeck/cli/intro --include "https://docs.elgato.com/streamdeck/cli/**" -o output/cli [--method ...] [--frontmatter] [--frontmatter-fields ...]`
 - Python API:
   - `web2md.crawl_site(...)`（非同期） / `web2md.crawl_site_sync(...)`（同期） / `web2md.convert_single(...)`
 - 手法比較ベンチマーク:
-  - `uv run python scripts/compare_methods.py [--with-ollama] [--dump]`
+  - `uv run python scripts/compare_methods.py [--dump]`
 
 ## 構成
 
-- [src/web2md/extractors.py](src/web2md/extractors.py): HTML→Markdown 変換（`dom-markdownify`, `crawl4ai`, `readability`, `trafilatura`）、メタデータ抽出、サイドバーリンク抽出
-- [src/web2md/site_builder.py](src/web2md/site_builder.py): URL→相対パス設計、Markdown 内の相対リンク書き換え、階層目次（`index.md`）生成
-- [src/web2md/crawler.py](src/web2md/crawler.py): 単一ページ変換（`convert_single`）および Crawl4AI によるサイトクロール（`crawl_site`）
+- [src/web2md/extractors.py](src/web2md/extractors.py): HTML→Markdown 変換（`dom-markdownify`, `crawl4ai`）、メタデータ抽出、サイドバーリンク抽出
+- [src/web2md/site_builder.py](src/web2md/site_builder.py): URL→相対パス設計、Markdown 内の相対リンク書き換え、YAML フロントマター生成、階層目次（`index.md`）生成
+- [src/web2md/crawler.py](src/web2md/crawler.py): 単一ページ変換（`convert_single`）および Crawl4AI によるサイトクロール（`crawl_site`, `crawl_site_sync`）
 - [src/web2md/cli.py](src/web2md/cli.py): `web2md` CLI エントリポイント
-- [docs/comparison.md](docs/comparison.md): 各変換手法・目次生成手法の実測比較結果
+- [docs/comparison.md](docs/comparison.md): 各変換手法・目次生成手法の検証結果
 
 ## 開発ルール
 
