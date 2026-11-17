@@ -62,6 +62,7 @@ def test_rewrite_markdown_links_resolves_internal_external_images_and_code_block
             "See [CLI Intro](/docs/cli/intro#flags) and [Same](#install).",
             "Also check [Unlisted](/blog/release) and [External](https://github.com/org/repo).",
             "![Diagram](/img/arch.png)",
+            '<img src="/img/html-arch.png" alt="HTML Diagram">',
             "",
             "```markdown",
             "Do not rewrite [CLI](/docs/cli/intro) inside code fences.",
@@ -81,6 +82,7 @@ def test_rewrite_markdown_links_resolves_internal_external_images_and_code_block
     assert "[Unlisted](https://docs.example.com/blog/release)" in rewritten
     assert "[External](https://github.com/org/repo)" in rewritten
     assert "![Diagram](https://docs.example.com/img/arch.png)" in rewritten
+    assert '<img src="https://docs.example.com/img/html-arch.png" alt="HTML Diagram">' in rewritten
     assert "Do not rewrite [CLI](/docs/cli/intro) inside code fences." in rewritten
 
 

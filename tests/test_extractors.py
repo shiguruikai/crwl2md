@@ -93,7 +93,6 @@ def test_extract_markdown_crawl4ai_cleans_nav_and_preserves_body():
             "",
             "Body paragraph here.",
             "",
-            "[Edit this page](https://github.com/org/repo/edit/main/doc.md)",
             "[Next Actions](https://docs.example.com/docs/sdk/actions)",
         ]
     )
@@ -102,8 +101,7 @@ def test_extract_markdown_crawl4ai_cleans_nav_and_preserves_body():
 
     assert md.startswith("# Getting Started\n")
     assert "Body paragraph here." in md
-    assert "Edit this page" not in md
-    assert "Next Actions" not in md
+    assert "[Next Actions](https://docs.example.com/docs/sdk/actions)" in md
     assert "\u200b" not in md
 
 
@@ -210,3 +208,120 @@ def test_extract_sidebar_links_extracts_ordered_same_host_links():
         "https://docs.example.com/docs/sdk/getting-started",
         "https://docs.example.com/docs/sdk/actions",
     ]
+
+
+def test_extract_markdown_preserves_images_as_html_img_tags():
+    html = """
+    <html><body><main>
+      <h1>Guide <img src="/img/badge.svg" alt=""></h1>
+      <p><img data-src="../../assets/diagram.png" alt="Diagram" title="Architecture" width="640" height="360"></p>
+      <p>Icon without alt text: <img src="icons/warn.png"></p>
+      <table>
+        <thead><tr><th>Preview</th></tr></thead>
+        <tbody><tr><td><img src="/img/cell.png" alt="Cell preview" /></td></tr></tbody>
+      </table>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html, url="https://docs.example.com/v1/guide/start/", method="dom-markdownify")
+
+    assert '# Guide <img src="https://docs.example.com/img/badge.svg" alt="">' in md
+    assert (
+        '<img src="https://docs.example.com/v1/assets/diagram.png" alt="Diagram" title="Architecture" width="640" height="360">'
+        in md
+    )
+    assert '<img src="https://docs.example.com/v1/guide/start/icons/warn.png">' in md
+    assert '| <img src="https://docs.example.com/img/cell.png" alt="Cell preview"> |' in md
+
+
+def test_extract_markdown_handles_mdn_patterns():
+    html = """
+    <html><body>
+      <main id="content" class="layout__content">
+        <div class="translation-banner notecard note"><p>Translated notice</p></div>
+        <h1>Regular expressions</h1>
+        <aside class="layout__right-sidebar"><nav><h2>On this page</h2></nav></aside>
+        <section>
+          <h2 id="syntax" class="heading"><a class="heading-anchor" href="#syntax">Syntax</a></h2>
+          <p>See <a href="/en-US/docs/Guide">the guide</a> for details.</p>
+          <div class="notecard note"><p><strong>Note:</strong> Regular expressions use patterns.</p></div>
+          <div class="code-example">
+            <div class="example-header"><span class="language-name">js</span></div>
+            <pre class="brush: js notranslate"><code>const re = /ab+c/g;</code></pre>
+          </div>
+        </section>
+        <section class="content-section article-footer"><h2>Help improve MDN</h2></section>
+      </main>
+    </body></html>
+    """
+
+    md = extract_markdown(html, url="https://developer.mozilla.org/en-US/docs/RegExp", method="dom-markdownify")
+
+    assert "Translated notice" not in md
+    assert "On this page" not in md
+    assert "Help improve MDN" not in md
+    assert "## Syntax" in md
+    assert "## [Syntax]" not in md
+    assert "> **Note:** Regular expressions use patterns." in md
+    assert "```js\nconst re = /ab+c/g;\n```" in md
+    assert "\njs\n\n```js" not in md
+
+
+def test_extract_markdown_handles_vitepress_and_zensical_containers():
+    vitepress_html = """
+    <html><body><main>
+      <div class="vp-doc">
+        <h1>CLI <a class="header-anchor" href="#cli">\u200b</a></h1>
+        <div class="custom-block tip">
+          <p class="custom-block-title">TIP</p>
+          <p>Run vitepress dev.</p>
+        </div>
+        <div class="language-sh">
+          <button class="copy"></button>
+          <span class="lang">sh</span>
+          <pre class="shiki"><code>vitepress dev</code></pre>
+        </div>
+      </div>
+      <footer class="VPDocFooter"><a class="edit-link">Edit this page</a></footer>
+    </main></body></html>
+    """
+    zensical_html = """
+    <html><body><main class="md-main">
+      <div class="md-sidebar md-sidebar--primary"><a href="/other">Other</a></div>
+      <div class="md-content">
+        <nav class="md-path"><a href="/">Home</a></nav>
+        <article class="md-content__inner">
+          <a href="https://github.com/org/repo/edit/main/doc.md" class="md-content__button">Edit this page</a>
+          <h1>Create site<a class="headerlink" href="#create-site" title="Permanent link">¶</a></h1>
+          <p>Bootstrap your docs.</p>
+        </article>
+      </div>
+    </main></body></html>
+    """
+
+    vp_md = extract_markdown(vitepress_html, method="dom-markdownify")
+    zen_md = extract_markdown(zensical_html, method="dom-markdownify")
+
+    assert vp_md.startswith("# CLI\n")
+    assert "> **TIP**\n>\n> Run vitepress dev." in vp_md
+    assert "```sh\nvitepress dev\n```" in vp_md
+    assert "\nsh\n\n```sh" not in vp_md
+    assert "Edit this page" not in vp_md
+
+    assert zen_md == "# Create site\n\nBootstrap your docs."
+
+
+def test_extract_page_metadata_preserves_snake_case_and_ignores_img_tags():
+    html = "<html><head><title>Config | Docs</title></head><body></body></html>"
+    md = "\n".join(
+        [
+            '<img src="https://example.com/banner.png" alt="Banner">',
+            "",
+            'Use `max_depth` <img src="https://example.com/icon.png" alt=""> to configure crawling.',
+        ]
+    )
+
+    meta = extract_page_metadata(html, md)
+
+    assert meta.title == "Config"
+    assert meta.description == "Use max_depth to configure crawling."

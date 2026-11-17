@@ -19,6 +19,7 @@ _FRONTMATTER_FIELD_SET = frozenset(FRONTMATTER_FIELDS)
 
 _UNSAFE_SEGMENT_RE = re.compile(r'[<>:"|?*\x00-\x1f\\]')
 _MD_INLINE_LINK_RE = re.compile(r'(!?)\[((?:[^\[\]]|\[[^\]]*\])*)\]\(([^)\s]+)(\s+"[^"]*")?\)')
+_HTML_IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=")([^"]+)("[^>]*>)', re.IGNORECASE)
 
 
 class CrawledPageDoc(BaseModel):
@@ -187,6 +188,12 @@ def rewrite_markdown_links(
             return f"[{text}]({abs_url}{title_part})"
         return match.group(0)
 
+    def replace_html_img_src(match: re.Match[str]) -> str:
+        prefix, raw_src, suffix = match.groups()
+        if not has_http_source or raw_src.startswith(("http://", "https://", "data:", "#")):
+            return match.group(0)
+        return f"{prefix}{urljoin(source_url, raw_src)}{suffix}"
+
     output_lines: list[str] = []
     in_code_block = False
     for line in markdown.splitlines():
@@ -194,7 +201,12 @@ def rewrite_markdown_links(
             in_code_block = not in_code_block
             output_lines.append(line)
             continue
-        output_lines.append(line if in_code_block else _MD_INLINE_LINK_RE.sub(replace_match, line))
+        if in_code_block:
+            output_lines.append(line)
+            continue
+        rewritten_line = _MD_INLINE_LINK_RE.sub(replace_match, line)
+        rewritten_line = _HTML_IMG_SRC_RE.sub(replace_html_img_src, rewritten_line)
+        output_lines.append(rewritten_line)
 
     return "\n".join(output_lines)
 
