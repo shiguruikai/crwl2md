@@ -1,0 +1,30 @@
+version: "3"
+
+tasks:
+  setup:
+    desc: Set up the project
+    cmds:
+      - mise install
+      - uv sync --frozen --reinstall
+
+  lint:
+    desc: Run linters
+    cmds:
+      - tombi lint
+      - markdownlint-cli2
+      - uv run ruff check .
+      - uv run ruff format --check .
+      - uv run pyright
+
+  format:
+    desc: Format and fix code
+    cmds:
+      - tombi format
+      - markdownlint-cli2 --fix
+      - uv run ruff check --fix .
+      - uv run ruff format .
+
+  test:
+    desc: Run tests
+    cmds:
+      - uv run pytest {{.CLI_ARGS}}

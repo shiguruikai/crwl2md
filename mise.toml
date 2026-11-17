@@ -1,0 +1,13 @@
+[tools]
+# タスクランナー
+task = "latest"
+
+# パッケージマネージャー
+uv = "latest"
+
+# 言語ランタイム
+python = "3.14"
+
+# リント・フォーマット
+"npm:markdownlint-cli2" = "latest"
+tombi = "latest"
