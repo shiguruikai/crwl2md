@@ -20,13 +20,15 @@
 ## コマンド
 
 - 定型操作は [Taskfile.yml](Taskfile.yml) に集約し、`task <TASK>` で実行する。
-  - `task setup`: `mise install` と `uv sync --frozen --reinstall` を実行する。
+  - `task setup`: `mise install` と `uv sync --frozen --reinstall` と `uv run playwright install chromium` を実行する。
   - `task format`: `tombi format`, `markdownlint-cli2 --fix`, `ruff check --fix`, `ruff format` を実行する。
   - `task lint`: `tombi lint`, `markdownlint-cli2`, `ruff check`, `ruff format --check`, `pyright` を実行する。
   - `task test`: `uv run pytest` を実行する。
 - CLI 実行例:
   - `uv run web2md convert <URLまたはHTMLファイル> [-o OUTPUT] [--method dom-markdownify|crawl4ai|readability|trafilatura] [--frontmatter]`
-  - `uv run web2md crawl <URL> -o <出力ディレクトリ> [--max-depth 2] [--max-pages 100] [--method ...] [--frontmatter]`
+  - `uv run web2md crawl https://docs.elgato.com/streamdeck/cli/intro --include "https://docs.elgato.com/streamdeck/cli/**" -o output/cli [--method ...] [--frontmatter]`
+- Python API:
+  - `web2md.crawl_site(...)`（非同期） / `web2md.crawl_site_sync(...)`（同期） / `web2md.convert_single(...)`
 - 手法比較ベンチマーク:
   - `uv run python scripts/compare_methods.py [--with-ollama] [--dump]`
 
