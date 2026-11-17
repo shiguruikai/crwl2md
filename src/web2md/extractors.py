@@ -197,11 +197,18 @@ def _extract_with_dom_markdownify(html: str) -> str:
 
 
 def _extract_with_crawl4ai(html: str, url: str, crawl4ai_markdown: str | None) -> str:
-    if crawl4ai_markdown is not None:
+    if crawl4ai_markdown and crawl4ai_markdown.strip():
         return _postprocess_markdown(crawl4ai_markdown, strip_leading_nav=True)
 
+    target_html = html
+    if html.strip():
+        soup = BeautifulSoup(html, "lxml")
+        main_el = soup.select_one("main")
+        if main_el is not None:
+            target_html = str(main_el)
+
     generator = DefaultMarkdownGenerator()
-    result = generator.generate_markdown(input_html=html, base_url=url, citations=False)
+    result = generator.generate_markdown(input_html=target_html, base_url=url, citations=False)
     return _postprocess_markdown(result.raw_markdown, strip_leading_nav=True)
 
 

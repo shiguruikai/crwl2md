@@ -6,6 +6,7 @@ tasks:
     cmds:
       - mise install
       - uv sync --frozen --reinstall
+      - uv run playwright install chromium
 
   lint:
     desc: Run linters

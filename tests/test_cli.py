@@ -7,8 +7,9 @@ from pathlib import Path
 import pytest
 from crawl4ai import CrawlResult
 
+from web2md import CrawlConfig, crawl_site, crawl_site_sync
 from web2md.cli import main
-from web2md.crawler import CrawlConfig, crawl_site
+from web2md.crawler import build_filter_chain, compile_url_pattern
 
 
 class _FakeCrawler:
@@ -128,3 +129,63 @@ async def test_crawl_site_writes_markdown_and_toc(tmp_path: Path):
 
     toc_text = (out_dir / "index.md").read_text(encoding="utf-8")
     assert toc_text.index("start.md") < toc_text.index("api.md")
+
+
+def test_compile_url_pattern_glob_double_star():
+    # Arrange
+    pattern = compile_url_pattern("https://docs.elgato.com/streamdeck/cli/**")
+    path_pattern = compile_url_pattern("/streamdeck/cli/**")
+    suffix_pattern = compile_url_pattern("*.pdf")
+
+    # Act / Assert
+    assert pattern.search("https://docs.elgato.com/streamdeck/cli")
+    assert pattern.search("https://docs.elgato.com/streamdeck/cli/")
+    assert pattern.search("https://docs.elgato.com/streamdeck/cli/intro")
+    assert pattern.search("https://docs.elgato.com/streamdeck/cli/commands/create")
+    assert not pattern.search("https://docs.elgato.com/streamdeck/sdk/intro")
+    assert not pattern.search("https://docs.elgato.com/streamdeck/cli-other/intro")
+
+    assert path_pattern.search("https://docs.elgato.com/streamdeck/cli/commands/create")
+    assert not path_pattern.search("https://docs.elgato.com/streamdeck/sdk/intro")
+
+    assert suffix_pattern.search("https://example.com/files/manual.pdf")
+    assert not suffix_pattern.search("https://example.com/files/manual.html")
+
+
+@pytest.mark.asyncio
+async def test_build_filter_chain_uses_include_patterns(tmp_path: Path):
+    # Arrange
+    config = CrawlConfig(
+        url="https://docs.elgato.com/streamdeck/cli/commands/create",
+        output_dir=tmp_path / "out",
+        include_patterns=["https://docs.elgato.com/streamdeck/cli/**"],
+    )
+    chain = build_filter_chain(config)
+
+    # Act / Assert
+    assert await chain.apply("https://docs.elgato.com/streamdeck/cli/intro")
+    assert await chain.apply("https://docs.elgato.com/streamdeck/cli/commands/pack")
+    assert not await chain.apply("https://docs.elgato.com/streamdeck/sdk/actions")
+    assert not await chain.apply("https://docs.elgato.com/streamdeck/cli/asset.js")
+
+
+def test_python_api_crawl_site_sync_with_direct_args(tmp_path: Path):
+    # Arrange
+    html = "<html><body><main><h1>Intro</h1><p>Welcome.</p></main></body></html>"
+    fake_crawler = _FakeCrawler(
+        [CrawlResult(url="https://docs.elgato.com/streamdeck/cli/intro", html=html, success=True)]
+    )
+    out_dir = tmp_path / "cli_out"
+
+    # Act
+    summary = crawl_site_sync(
+        "https://docs.elgato.com/streamdeck/cli/intro",
+        out_dir,
+        include_patterns=["https://docs.elgato.com/streamdeck/cli/**"],
+        crawler=fake_crawler,
+    )
+
+    # Assert
+    assert summary.page_count == 1
+    assert (out_dir / "intro.md").is_file()
+    assert (out_dir / "index.md").is_file()

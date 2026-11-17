@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import posixpath
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 from urllib.parse import unquote, urlparse
 
 import httpx
@@ -130,6 +130,51 @@ def convert_single(
     return md.rstrip() + "\n" if md else ""
 
 
+def _glob_to_regex(pattern: str, *, leading_star_any: bool = False) -> str:
+    parts: list[str] = []
+    i = 0
+    while i < len(pattern):
+        if pattern.startswith("**", i):
+            parts.append(".*")
+            i += 2
+        elif pattern[i] == "*":
+            parts.append(".*" if (i == 0 and leading_star_any) else "[^/]*")
+            i += 1
+        elif pattern[i] == "?":
+            parts.append("[^/]")
+            i += 1
+        else:
+            parts.append(re.escape(pattern[i]))
+            i += 1
+    return "".join(parts)
+
+
+def compile_url_pattern(pattern: str | re.Pattern[str]) -> re.Pattern[str]:
+    """Glob（`*` / `**`）または正規表現文字列を `re.Pattern` へ変換する。"""
+    if isinstance(pattern, re.Pattern):
+        return pattern
+
+    raw = pattern.strip()
+    if raw.startswith("^") or raw.endswith("$"):
+        return re.compile(raw)
+
+    if raw.endswith("/**"):
+        base = raw[:-3]
+        if "://" in base:
+            return re.compile(rf"^{_glob_to_regex(base)}(?:/.*|\?.*)?$")
+        if base.startswith("/"):
+            return re.compile(rf"^https?://[^/]+{_glob_to_regex(base)}(?:/.*|\?.*)?$")
+        return re.compile(rf"^{_glob_to_regex(base, leading_star_any=True)}(?:/.*|\?.*)?$")
+
+    if "://" in raw:
+        return re.compile(rf"^{_glob_to_regex(raw)}$")
+    if raw.startswith("/"):
+        return re.compile(rf"^https?://[^/]+{_glob_to_regex(raw)}$")
+    if "*" in raw or "?" in raw:
+        return re.compile(rf"^{_glob_to_regex(raw, leading_star_any=True)}$")
+    return re.compile(re.escape(raw))
+
+
 def _build_path_scope_regex(seed_url: str) -> re.Pattern[str] | None:
     parsed = urlparse(seed_url)
     path = parsed.path or "/"
@@ -146,21 +191,31 @@ def build_filter_chain(config: CrawlConfig) -> FilterChain:
     parsed = urlparse(config.url)
     filters: list[Any] = []
 
+    allowed_domains: list[str] = []
     if parsed.netloc:
-        filters.append(DomainFilter(allowed_domains=[parsed.netloc]))
+        allowed_domains.append(parsed.netloc)
+    for pat in config.include_patterns:
+        if "://" in pat:
+            pat_host = urlparse(pat.replace("*", "x")).netloc
+            if pat_host and "*" not in pat.split("://", 1)[1].split("/", 1)[0] and pat_host not in allowed_domains:
+                allowed_domains.append(pat_host)
+    if allowed_domains:
+        filters.append(DomainFilter(allowed_domains=allowed_domains))
 
     filters.append(URLPatternFilter(patterns=[_NON_HTML_ASSET_RE], reverse=True))
 
-    if not config.allow_all_paths:
+    if not config.allow_all_paths and not config.include_patterns:
         scope_pattern = _build_path_scope_regex(config.url)
         if scope_pattern is not None:
             filters.append(URLPatternFilter(patterns=[scope_pattern]))
 
     if config.include_patterns:
-        filters.append(URLPatternFilter(patterns=list(config.include_patterns)))
+        compiled_includes: list[str | re.Pattern[str]] = [compile_url_pattern(pat) for pat in config.include_patterns]
+        filters.append(URLPatternFilter(patterns=compiled_includes))
 
     if config.exclude_patterns:
-        filters.append(URLPatternFilter(patterns=list(config.exclude_patterns), reverse=True))
+        compiled_excludes: list[str | re.Pattern[str]] = [compile_url_pattern(pat) for pat in config.exclude_patterns]
+        filters.append(URLPatternFilter(patterns=compiled_excludes, reverse=True))
 
     return FilterChain(filters)
 
@@ -173,11 +228,89 @@ def _flatten_crawl_results(raw_result: Any) -> list[CrawlResult]:
     return []
 
 
-async def crawl_site(config: CrawlConfig, crawler: Any | None = None) -> CrawlSummary:
+def _resolve_crawl_config(
+    url_or_config: CrawlConfig | str,
+    output_dir: str | Path | None = None,
+    *,
+    max_depth: int = 2,
+    max_pages: int = 100,
+    method: ExtractorType = "dom-markdownify",
+    include_patterns: Sequence[str] = (),
+    exclude_patterns: Sequence[str] = (),
+    allow_all_paths: bool = False,
+    frontmatter: bool = False,
+    verbose: bool = False,
+) -> CrawlConfig:
+    if isinstance(url_or_config, CrawlConfig):
+        return url_or_config
+    if output_dir is None:
+        raise ValueError("output_dir is required when calling crawl_site with a URL string.")
+    return CrawlConfig(
+        url=url_or_config,
+        output_dir=Path(output_dir),
+        max_depth=max_depth,
+        max_pages=max_pages,
+        method=method,
+        include_patterns=list(include_patterns),
+        exclude_patterns=list(exclude_patterns),
+        allow_all_paths=allow_all_paths,
+        frontmatter=frontmatter,
+        verbose=verbose,
+    )
+
+
+@overload
+async def crawl_site(url_or_config: CrawlConfig, *, crawler: Any | None = None) -> CrawlSummary: ...
+
+
+@overload
+async def crawl_site(
+    url_or_config: str,
+    output_dir: str | Path,
+    *,
+    max_depth: int = 2,
+    max_pages: int = 100,
+    method: ExtractorType = "dom-markdownify",
+    include_patterns: Sequence[str] = (),
+    exclude_patterns: Sequence[str] = (),
+    allow_all_paths: bool = False,
+    frontmatter: bool = False,
+    verbose: bool = False,
+    crawler: Any | None = None,
+) -> CrawlSummary: ...
+
+
+async def crawl_site(
+    url_or_config: CrawlConfig | str,
+    output_dir: str | Path | None = None,
+    *,
+    max_depth: int = 2,
+    max_pages: int = 100,
+    method: ExtractorType = "dom-markdownify",
+    include_patterns: Sequence[str] = (),
+    exclude_patterns: Sequence[str] = (),
+    allow_all_paths: bool = False,
+    frontmatter: bool = False,
+    verbose: bool = False,
+    crawler: Any | None = None,
+) -> CrawlSummary:
     """ドキュメントサイトをクロールし、リンク解決済みの Markdown と目次群を出力する。"""
+    config = _resolve_crawl_config(
+        url_or_config,
+        output_dir,
+        max_depth=max_depth,
+        max_pages=max_pages,
+        method=method,
+        include_patterns=include_patterns,
+        exclude_patterns=exclude_patterns,
+        allow_all_paths=allow_all_paths,
+        frontmatter=frontmatter,
+        verbose=verbose,
+    )
     filter_chain = build_filter_chain(config)
     run_config = CrawlerRunConfig(
         stream=False,
+        target_elements=["main"],
         deep_crawl_strategy=BFSDeepCrawlStrategy(
             max_depth=config.max_depth,
             max_pages=config.max_pages,
@@ -285,3 +418,54 @@ async def crawl_site(config: CrawlConfig, crawler: Any | None = None) -> CrawlSu
         failed_urls=failed_urls,
         files=sorted(written_files),
     )
+
+
+@overload
+def crawl_site_sync(url_or_config: CrawlConfig, *, crawler: Any | None = None) -> CrawlSummary: ...
+
+
+@overload
+def crawl_site_sync(
+    url_or_config: str,
+    output_dir: str | Path,
+    *,
+    max_depth: int = 2,
+    max_pages: int = 100,
+    method: ExtractorType = "dom-markdownify",
+    include_patterns: Sequence[str] = (),
+    exclude_patterns: Sequence[str] = (),
+    allow_all_paths: bool = False,
+    frontmatter: bool = False,
+    verbose: bool = False,
+    crawler: Any | None = None,
+) -> CrawlSummary: ...
+
+
+def crawl_site_sync(
+    url_or_config: CrawlConfig | str,
+    output_dir: str | Path | None = None,
+    *,
+    max_depth: int = 2,
+    max_pages: int = 100,
+    method: ExtractorType = "dom-markdownify",
+    include_patterns: Sequence[str] = (),
+    exclude_patterns: Sequence[str] = (),
+    allow_all_paths: bool = False,
+    frontmatter: bool = False,
+    verbose: bool = False,
+    crawler: Any | None = None,
+) -> CrawlSummary:
+    """`crawl_site` の同期版ラッパー。"""
+    config = _resolve_crawl_config(
+        url_or_config,
+        output_dir,
+        max_depth=max_depth,
+        max_pages=max_pages,
+        method=method,
+        include_patterns=include_patterns,
+        exclude_patterns=exclude_patterns,
+        allow_all_paths=allow_all_paths,
+        frontmatter=frontmatter,
+        verbose=verbose,
+    )
+    return asyncio.run(crawl_site(config, crawler=crawler))
