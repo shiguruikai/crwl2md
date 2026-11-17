@@ -6,15 +6,14 @@ import re
 from typing import Literal
 from urllib.parse import urljoin, urlparse
 
-import trafilatura
 from bs4 import BeautifulSoup, Tag
+from bs4.element import NavigableString
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from markdownify import markdownify
 from pydantic import BaseModel
-from readability import Document
 
-ExtractorType = Literal["dom-markdownify", "crawl4ai", "readability", "trafilatura"]
-EXTRACTOR_METHODS: tuple[ExtractorType, ...] = ("dom-markdownify", "crawl4ai", "readability", "trafilatura")
+ExtractorType = Literal["dom-markdownify", "crawl4ai"]
+EXTRACTOR_METHODS: tuple[ExtractorType, ...] = ("dom-markdownify", "crawl4ai")
 
 _MAIN_SELECTORS: tuple[str, ...] = (
     "main",
@@ -89,18 +88,54 @@ def _extract_lang_from_attrs(tag: Tag | None) -> str:
 
 
 def _detect_code_language(el: Tag) -> str:
-    """`<pre>` 要素・内包 `<code>`・親要素からコードブロックの言語名を検出する。"""
+    """`<pre>` 要素・内包 `<code>`・最大3階層上の親要素からコードブロックの言語名を検出する。"""
     code = el.find("code")
-    candidates: tuple[Tag | None, ...] = (
-        code if isinstance(code, Tag) else None,
-        el,
-        el.parent if isinstance(el.parent, Tag) else None,
-    )
+    candidates: list[Tag | None] = [code if isinstance(code, Tag) else None, el]
+    parent = el.parent
+    for _ in range(3):
+        if not isinstance(parent, Tag):
+            break
+        candidates.append(parent)
+        parent = parent.parent
     for candidate in candidates:
         lang = _extract_lang_from_attrs(candidate)
         if lang:
             return lang
     return ""
+
+
+def _normalize_admonitions(container: Tag, soup: BeautifulSoup) -> None:
+    """Docusaurus 等の Admonition 要素を Markdown の引用ブロックへ整形する。"""
+    for admonition in list(container.select(".theme-admonition, .admonition")):
+        if admonition.find_parent("blockquote") is not None:
+            continue
+
+        heading = admonition.select_one('[class*="admonitionHeading" i], .admonition-heading, .admonition-title')
+        if heading is not None:
+            heading_text = re.sub(r"\s+", " ", heading.get_text()).strip()
+            if heading_text:
+                p_tag = soup.new_tag("p")
+                strong_tag = soup.new_tag("strong")
+                strong_tag.string = heading_text
+                p_tag.append(strong_tag)
+                heading.replace_with(p_tag)
+            else:
+                heading.decompose()
+
+        for content in list(admonition.select('[class*="admonitionContent" i], .admonition-content')):
+            content.unwrap()
+
+        admonition.name = "blockquote"
+
+
+def _normalize_anchor_newlines(container: Tag) -> None:
+    """`<a>` 要素内の改行を含む空白を単一スペースに正規化する。"""
+    for anchor in container.find_all("a"):
+        for node in list(anchor.descendants):
+            if isinstance(node, NavigableString) and ("\n" in node or "\r" in node):
+                if node.find_parent("pre") is not None:
+                    continue
+                node.replace_with(re.sub(r"\s*\r?\n\s*", " ", str(node)))
 
 
 def _strip_unwanted_dom_elements(container: Tag) -> None:
@@ -170,18 +205,6 @@ def _postprocess_markdown(markdown: str, *, strip_leading_nav: bool = False) -> 
     return normalized.strip()
 
 
-def _has_h1_heading(markdown: str) -> bool:
-    in_code_block = False
-    for line in markdown.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
-            in_code_block = not in_code_block
-            continue
-        if not in_code_block and stripped.startswith("# "):
-            return True
-    return False
-
-
 def _extract_with_dom_markdownify(html: str) -> str:
     soup = BeautifulSoup(html, "lxml")
     container: Tag | None = None
@@ -193,6 +216,8 @@ def _extract_with_dom_markdownify(html: str) -> str:
 
     target = container if container is not None else soup
     _strip_unwanted_dom_elements(target)
+    _normalize_admonitions(target, soup)
+    _normalize_anchor_newlines(target)
     return _postprocess_markdown(_html_to_markdown(str(target)))
 
 
@@ -212,35 +237,6 @@ def _extract_with_crawl4ai(html: str, url: str, crawl4ai_markdown: str | None) -
     return _postprocess_markdown(result.raw_markdown, strip_leading_nav=True)
 
 
-def _extract_with_readability(html: str, url: str) -> str:
-    doc = Document(html, url=url or None)
-    # summary() は内部 DOM を書き換えるため、先にタイトルを取得する。
-    title = (doc.short_title() or doc.title() or "").strip()
-    summary_html = doc.summary(html_partial=True)
-
-    soup = BeautifulSoup(summary_html, "lxml")
-    _strip_unwanted_dom_elements(soup)
-    md = _postprocess_markdown(_html_to_markdown(str(soup)))
-    if md and title and not _has_h1_heading(md):
-        md = f"# {title}\n\n{md}"
-    return md
-
-
-def _extract_with_trafilatura(html: str, url: str) -> str:
-    extracted = trafilatura.extract(
-        html,
-        url=url or None,
-        output_format="markdown",
-        include_links=True,
-        include_tables=True,
-        include_formatting=True,
-        include_images=True,
-    )
-    if not extracted:
-        return ""
-    return _postprocess_markdown(extracted)
-
-
 def extract_markdown(
     html: str,
     url: str = "",
@@ -255,10 +251,6 @@ def extract_markdown(
         return _extract_with_dom_markdownify(html)
     if method == "crawl4ai":
         return _extract_with_crawl4ai(html, url, crawl4ai_markdown)
-    if method == "readability":
-        return _extract_with_readability(html, url)
-    if method == "trafilatura":
-        return _extract_with_trafilatura(html, url)
 
     raise ValueError(f"Unsupported extractor method: {method}")
 

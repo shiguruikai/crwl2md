@@ -148,6 +148,41 @@ def test_extract_markdown_all_methods_extract_main_text(method):
     assert "clean Markdown files" in md
 
 
+def test_extract_markdown_dom_markdownify_supports_nested_code_lang_admonition_and_multiline_links():
+    # Arrange
+    html = """
+    <html><body><main>
+      <h1>Install</h1>
+      <div class="container_prVO language-bash">
+        <div class="title_SCW8">Terminal</div>
+        <div class="codeContainer_vNK6">
+          <pre><code>npm install -g @elgato/cli</code></pre>
+        </div>
+      </div>
+      <div class="theme-admonition theme-admonition-info alert alert--info">
+        <div class="admonitionHeading_Gvgb"><span></span>info</div>
+        <div class="admonitionContent_BuS1">
+          <p>Read <a href="https://example.com/win">Install Node.js on\nWindows</a> for details.</p>
+        </div>
+      </div>
+    </main></body></html>
+    """
+
+    # Act
+    md = extract_markdown(html, method="dom-markdownify")
+
+    # Assert
+    assert "```bash\nnpm install -g @elgato/cli\n```" in md
+    assert "> **info**" in md
+    assert "> Read [Install Node.js on Windows](https://example.com/win) for details." in md
+
+
+def test_extract_markdown_unsupported_method_raises():
+    # Arrange / Act / Assert
+    with pytest.raises(ValueError, match="Unsupported extractor method"):
+        extract_markdown("<p>hi</p>", method="unknown")  # type: ignore[arg-type]
+
+
 def test_extract_markdown_empty_input():
     # Arrange / Act
     md = extract_markdown("   ")
