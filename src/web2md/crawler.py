@@ -6,6 +6,7 @@ import asyncio
 import posixpath
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, overload
 from urllib.parse import unquote, urlparse
@@ -31,11 +32,14 @@ from web2md.extractors import (
     extract_sidebar_links,
 )
 from web2md.site_builder import (
+    FRONTMATTER_FIELDS,
     CrawledPageDoc,
+    FrontmatterField,
     compute_relative_paths,
     format_frontmatter,
     generate_toc_files,
     normalize_url_key,
+    parse_frontmatter_fields,
     rewrite_markdown_links,
 )
 
@@ -57,6 +61,7 @@ class CrawlConfig(BaseModel):
     exclude_patterns: list[str] = Field(default_factory=list)
     allow_all_paths: bool = False
     frontmatter: bool = False
+    frontmatter_fields: list[FrontmatterField] | None = None
     verbose: bool = False
 
 
@@ -102,12 +107,26 @@ def fetch_html(url: str, timeout: float = 30.0) -> tuple[str, str]:
     return response.text, str(response.url)
 
 
+def _resolve_frontmatter_fields(
+    frontmatter: bool,
+    frontmatter_fields: Sequence[FrontmatterField] | str | None,
+) -> list[FrontmatterField] | None:
+    if frontmatter_fields is not None:
+        return parse_frontmatter_fields(frontmatter_fields)
+    if frontmatter:
+        return list(FRONTMATTER_FIELDS)
+    return None
+
+
 def convert_single(
     source: str,
     method: ExtractorType = "dom-markdownify",
     frontmatter: bool = False,
+    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
 ) -> str:
     """単一の URL またはローカル HTML ファイルを Markdown 文字列へ変換する。"""
+    resolved_fields = _resolve_frontmatter_fields(frontmatter, frontmatter_fields)
+
     crawl4ai_markdown: str | None = None
     if source.startswith(("http://", "https://")):
         if method == "crawl4ai":
@@ -122,9 +141,9 @@ def convert_single(
         final_url = ""
 
     md = extract_markdown(html, url=final_url, method=method, crawl4ai_markdown=crawl4ai_markdown)
-    if frontmatter:
+    if resolved_fields is not None:
         meta = extract_page_metadata(html, md)
-        fm = format_frontmatter(meta.title, meta.description, final_url)
+        fm = format_frontmatter(meta.title, meta.description, final_url, fields=resolved_fields)
         md = f"{fm}\n\n{md}" if md else fm
 
     return md.rstrip() + "\n" if md else ""
@@ -244,12 +263,14 @@ def _resolve_crawl_config(
     exclude_patterns: Sequence[str] = (),
     allow_all_paths: bool = False,
     frontmatter: bool = False,
+    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
     verbose: bool = False,
 ) -> CrawlConfig:
     if isinstance(url_or_config, CrawlConfig):
         return url_or_config
     if output_dir is None:
         raise ValueError("output_dir is required when calling crawl_site with a URL string.")
+    resolved_fields = parse_frontmatter_fields(frontmatter_fields) if frontmatter_fields is not None else None
     return CrawlConfig(
         url=url_or_config,
         output_dir=Path(output_dir),
@@ -259,7 +280,8 @@ def _resolve_crawl_config(
         include_patterns=list(include_patterns),
         exclude_patterns=list(exclude_patterns),
         allow_all_paths=allow_all_paths,
-        frontmatter=frontmatter,
+        frontmatter=frontmatter or resolved_fields is not None,
+        frontmatter_fields=resolved_fields,
         verbose=verbose,
     )
 
@@ -280,6 +302,7 @@ async def crawl_site(
     exclude_patterns: Sequence[str] = (),
     allow_all_paths: bool = False,
     frontmatter: bool = False,
+    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
     verbose: bool = False,
     crawler: Any | None = None,
 ) -> CrawlSummary: ...
@@ -296,6 +319,7 @@ async def crawl_site(
     exclude_patterns: Sequence[str] = (),
     allow_all_paths: bool = False,
     frontmatter: bool = False,
+    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
     verbose: bool = False,
     crawler: Any | None = None,
 ) -> CrawlSummary:
@@ -310,6 +334,7 @@ async def crawl_site(
         exclude_patterns=exclude_patterns,
         allow_all_paths=allow_all_paths,
         frontmatter=frontmatter,
+        frontmatter_fields=frontmatter_fields,
         verbose=verbose,
     )
     filter_chain = build_filter_chain(config)
@@ -365,6 +390,9 @@ async def crawl_site(
     seed_final_url = seed_result.redirected_url or seed_result.url
     nav_order = extract_sidebar_links(seed_result.html or "", seed_final_url)
 
+    resolved_fields = _resolve_frontmatter_fields(config.frontmatter, config.frontmatter_fields)
+    crawl_timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     pages: list[CrawledPageDoc] = []
     for res in deduped_results:
         final_url = res.redirected_url or res.url
@@ -380,8 +408,14 @@ async def crawl_site(
         meta = extract_page_metadata(res.html or "", raw_md, fallback_title=fallback_title)
         rewritten = rewrite_markdown_links(raw_md, final_url, relpath, url_to_relpath)
 
-        if config.frontmatter:
-            fm = format_frontmatter(meta.title, meta.description, final_url)
+        if resolved_fields is not None:
+            fm = format_frontmatter(
+                meta.title,
+                meta.description,
+                final_url,
+                timestamp=crawl_timestamp,
+                fields=resolved_fields,
+            )
             final_md = f"{fm}\n\n{rewritten}".strip() + "\n"
         else:
             final_md = rewritten.strip() + "\n" if rewritten.strip() else ""
@@ -441,6 +475,7 @@ def crawl_site_sync(
     exclude_patterns: Sequence[str] = (),
     allow_all_paths: bool = False,
     frontmatter: bool = False,
+    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
     verbose: bool = False,
     crawler: Any | None = None,
 ) -> CrawlSummary: ...
@@ -457,6 +492,7 @@ def crawl_site_sync(
     exclude_patterns: Sequence[str] = (),
     allow_all_paths: bool = False,
     frontmatter: bool = False,
+    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
     verbose: bool = False,
     crawler: Any | None = None,
 ) -> CrawlSummary:
@@ -471,6 +507,7 @@ def crawl_site_sync(
         exclude_patterns=exclude_patterns,
         allow_all_paths=allow_all_paths,
         frontmatter=frontmatter,
+        frontmatter_fields=frontmatter_fields,
         verbose=verbose,
     )
     return asyncio.run(crawl_site(config, crawler=crawler))

@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import re
+
+import pytest
+
 from web2md.site_builder import (
+    FRONTMATTER_FIELDS,
     CrawledPageDoc,
     compute_relative_paths,
     format_frontmatter,
     generate_toc_files,
     normalize_url_key,
+    parse_frontmatter_fields,
     rewrite_markdown_links,
 )
 
@@ -136,7 +142,7 @@ def test_generate_toc_files_respects_nav_order_and_subdirectories():
     assert sdk_toc.index("Getting Started") < sdk_toc.index("Actions")
 
 
-def test_format_frontmatter_escapes_special_characters():
+def test_format_frontmatter_escapes_special_characters_and_includes_utc_timestamp():
     # Arrange / Act
     fm = format_frontmatter('Guide: "Quotes"', "Line: one", "https://example.com/guide")
 
@@ -145,3 +151,38 @@ def test_format_frontmatter_escapes_special_characters():
     assert 'title: "Guide: \\"Quotes\\""' in fm
     assert 'description: "Line: one"' in fm
     assert "source: https://example.com/guide" in fm
+    assert re.search(r"^timestamp: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", fm, re.MULTILINE)
+
+
+def test_format_frontmatter_selects_requested_fields_in_order():
+    # Arrange
+    fields = parse_frontmatter_fields("timestamp, title, source")
+
+    # Act
+    fm = format_frontmatter(
+        "Intro",
+        "Desc",
+        "https://example.com/intro",
+        timestamp="2026-11-18T00:00:00Z",
+        fields=fields,
+    )
+
+    # Assert
+    assert fm == "\n".join(
+        [
+            "---",
+            "timestamp: 2026-11-18T00:00:00Z",
+            'title: "Intro"',
+            "source: https://example.com/intro",
+            "---",
+        ]
+    )
+
+
+def test_parse_frontmatter_fields_rejects_invalid_or_empty():
+    # Arrange / Act / Assert
+    assert parse_frontmatter_fields(None) == list(FRONTMATTER_FIELDS)
+    with pytest.raises(ValueError, match="Unsupported frontmatter field"):
+        parse_frontmatter_fields("title,unknown")
+    with pytest.raises(ValueError, match="At least one frontmatter field"):
+        parse_frontmatter_fields(" , ")

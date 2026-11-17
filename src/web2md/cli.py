@@ -12,6 +12,20 @@ import httpx
 
 from web2md.crawler import CrawlConfig, convert_single, crawl_site
 from web2md.extractors import EXTRACTOR_METHODS
+from web2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
+
+
+def _add_frontmatter_options(subparser: argparse.ArgumentParser) -> None:
+    subparser.add_argument(
+        "--frontmatter",
+        action="store_true",
+        help="Prepend YAML frontmatter to output Markdown.",
+    )
+    subparser.add_argument(
+        "--frontmatter-fields",
+        default=None,
+        help=f"Comma-separated YAML frontmatter fields ({','.join(FRONTMATTER_FIELDS)}). Enables frontmatter when set.",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,11 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="dom-markdownify",
         help="HTML-to-Markdown extraction method (default: dom-markdownify).",
     )
-    convert_parser.add_argument(
-        "--frontmatter",
-        action="store_true",
-        help="Prepend YAML frontmatter to output Markdown.",
-    )
+    _add_frontmatter_options(convert_parser)
 
     crawl_parser = subparsers.add_parser(
         "crawl",
@@ -77,11 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow crawling any path on the seed domain instead of restricting to the seed path prefix.",
     )
-    crawl_parser.add_argument(
-        "--frontmatter",
-        action="store_true",
-        help="Prepend YAML frontmatter to each generated Markdown document.",
-    )
+    _add_frontmatter_options(crawl_parser)
     crawl_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose crawler logging.")
 
     return parser
@@ -101,8 +107,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        frontmatter_fields = (
+            parse_frontmatter_fields(args.frontmatter_fields) if args.frontmatter_fields is not None else None
+        )
+
         if args.command == "convert":
-            markdown = convert_single(args.source, method=args.method, frontmatter=args.frontmatter)
+            markdown = convert_single(
+                args.source,
+                method=args.method,
+                frontmatter=args.frontmatter,
+                frontmatter_fields=frontmatter_fields,
+            )
             if args.output is not None:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(markdown, encoding="utf-8", newline="\n")
@@ -121,7 +136,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 include_patterns=args.include,
                 exclude_patterns=args.exclude,
                 allow_all_paths=args.allow_all_paths,
-                frontmatter=args.frontmatter,
+                frontmatter=args.frontmatter or frontmatter_fields is not None,
+                frontmatter_fields=frontmatter_fields,
                 verbose=args.verbose,
             )
             summary = asyncio.run(crawl_site(config))

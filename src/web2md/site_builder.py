@@ -8,9 +8,15 @@ import posixpath
 import re
 import sys
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Literal, cast
 from urllib.parse import urljoin, urlparse
 
 from pydantic import BaseModel
+
+FrontmatterField = Literal["title", "description", "source", "timestamp"]
+FRONTMATTER_FIELDS: tuple[FrontmatterField, ...] = ("title", "description", "source", "timestamp")
+_FRONTMATTER_FIELD_SET = frozenset(FRONTMATTER_FIELDS)
 
 _UNSAFE_SEGMENT_RE = re.compile(r'[<>:"|?*\x00-\x1f\\]')
 _MD_INLINE_LINK_RE = re.compile(r'(!?)\[((?:[^\[\]]|\[[^\]]*\])*)\]\(([^)\s]+)(\s+"[^"]*")?\)')
@@ -233,17 +239,53 @@ def rewrite_markdown_links(
     return "\n".join(output_lines)
 
 
-def format_frontmatter(title: str, description: str, source_url: str) -> str:
+def parse_frontmatter_fields(raw: str | Sequence[str] | None) -> list[FrontmatterField]:
+    """カンマ区切り文字列またはシーケンスを検証し、フロントマター出力項目のリストを返す。"""
+    if raw is None:
+        return list(FRONTMATTER_FIELDS)
+
+    items = (
+        [part.strip() for part in raw.split(",") if part.strip()]
+        if isinstance(raw, str)
+        else [part.strip() for part in raw if part.strip()]
+    )
+    if not items:
+        raise ValueError("At least one frontmatter field must be specified.")
+
+    validated: list[FrontmatterField] = []
+    seen: set[str] = set()
+    for item in items:
+        if item not in _FRONTMATTER_FIELD_SET:
+            valid = ", ".join(FRONTMATTER_FIELDS)
+            raise ValueError(f"Unsupported frontmatter field: {item}. Valid fields: {valid}")
+        if item not in seen:
+            seen.add(item)
+            validated.append(cast(FrontmatterField, item))
+    return validated
+
+
+def format_frontmatter(
+    title: str,
+    description: str,
+    source_url: str = "",
+    *,
+    timestamp: str | None = None,
+    fields: Sequence[FrontmatterField] = FRONTMATTER_FIELDS,
+) -> str:
     """ドキュメント先頭に付与する YAML フロントマッターを生成する。"""
-    safe_title = json.dumps(title, ensure_ascii=False)
-    safe_desc = json.dumps(description, ensure_ascii=False)
-    lines = [
-        "---",
-        f"title: {safe_title}",
-        f"description: {safe_desc}",
-    ]
-    if source_url:
-        lines.append(f"source: {source_url}")
+    resolved_fields = parse_frontmatter_fields(fields) if fields is not FRONTMATTER_FIELDS else list(FRONTMATTER_FIELDS)
+    ts_value = timestamp if timestamp is not None else datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    lines = ["---"]
+    for field in resolved_fields:
+        if field == "title":
+            lines.append(f"title: {json.dumps(title, ensure_ascii=False)}")
+        elif field == "description":
+            lines.append(f"description: {json.dumps(description, ensure_ascii=False)}")
+        elif field == "source" and source_url:
+            lines.append(f"source: {source_url}")
+        elif field == "timestamp":
+            lines.append(f"timestamp: {ts_value}")
     lines.append("---")
     return "\n".join(lines)
 

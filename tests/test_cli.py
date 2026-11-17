@@ -45,6 +45,27 @@ def test_cli_convert_local_file_to_output(tmp_path: Path):
     assert "World" in content
 
 
+def test_cli_convert_local_file_with_frontmatter_fields(tmp_path: Path):
+    # Arrange
+    html_file = tmp_path / "sample.html"
+    html_file.write_text(
+        "<html><head><title>Local</title></head><body><main><h1>Hello</h1><p>World</p></main></body></html>",
+        encoding="utf-8",
+    )
+    out_file = tmp_path / "out.md"
+
+    # Act
+    exit_code = main(["convert", str(html_file), "-o", str(out_file), "--frontmatter-fields", "title,timestamp"])
+
+    # Assert
+    assert exit_code == 0
+    content = out_file.read_text(encoding="utf-8")
+    assert 'title: "Hello"' in content
+    assert "timestamp: " in content
+    assert "description:" not in content
+    assert "# Hello" in content
+
+
 def test_cli_convert_missing_file_returns_error(tmp_path: Path):
     # Arrange
     missing = tmp_path / "does_not_exist.html"
@@ -185,6 +206,7 @@ def test_python_api_crawl_site_sync_with_direct_args(tmp_path: Path):
         "https://docs.elgato.com/streamdeck/cli/intro",
         out_dir,
         include_patterns=["https://docs.elgato.com/streamdeck/cli/**"],
+        frontmatter_fields=["title", "timestamp"],
         crawler=fake_crawler,
     )
 
@@ -192,3 +214,7 @@ def test_python_api_crawl_site_sync_with_direct_args(tmp_path: Path):
     assert summary.page_count == 1
     assert (out_dir / "intro.md").is_file()
     assert (out_dir / "index.md").is_file()
+    intro_text = (out_dir / "intro.md").read_text(encoding="utf-8")
+    assert 'title: "Intro"' in intro_text
+    assert "timestamp: " in intro_text
+    assert "description:" not in intro_text
