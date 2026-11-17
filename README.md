@@ -2,7 +2,30 @@
 
 ウェブサイトや HTML をクロールし、目次（`index.md`）付きの Markdown ファイル群へ変換する Python 製 CLI ツールです。
 
-## セットアップ
+## インストール
+
+前提として `uv` がインストールされている必要があります。
+
+```bash
+# GitHub リポジトリからグローバルインストール
+uv tool install git+https://github.com/shiguruikai/web2md.git
+
+# ローカルのリポジトリからインストールする場合（開発時は -e .）
+uv tool install .
+
+# 初回のみ：Playwright の Chromium ブラウザをインストール
+uv tool run --from web2md playwright install chromium
+```
+
+`web2md` コマンドが見つからない場合は `uv tool update-shell` を実行し、シェルを再起動してください。
+
+## アンインストール
+
+```bash
+uv tool uninstall web2md
+```
+
+## 開発セットアップ
 
 ```bash
 task setup
@@ -10,7 +33,9 @@ task setup
 
 ## 使い方
 
-### `uv run web2md --help`
+インストールしない場合は `uv run web2md` で実行してください。
+
+### `web2md --help`
 
 ```text
 usage: web2md [-h] {convert,crawl} ...
@@ -26,7 +51,7 @@ options:
   -h, --help       show this help message and exit
 ```
 
-### `uv run web2md convert --help`
+### `web2md convert --help`
 
 ```text
 usage: web2md convert [-h] [-o OUTPUT] [--method {dom-markdownify,crawl4ai}] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] source
@@ -44,7 +69,7 @@ options:
                         Comma-separated YAML frontmatter fields (title,description,source,timestamp). Enables frontmatter when set.
 ```
 
-### `uv run web2md crawl --help`
+### `web2md crawl --help`
 
 ```text
 usage: web2md crawl [-h] -o OUTPUT [--max-depth MAX_DEPTH] [--max-pages MAX_PAGES] [--method {dom-markdownify,crawl4ai}] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
@@ -74,10 +99,10 @@ options:
 
 ```bash
 # 単一ページ（URL またはローカル HTML）の変換
-uv run web2md convert https://docs.elgato.com/streamdeck/cli/intro -o intro.md
+web2md convert https://docs.elgato.com/streamdeck/cli/intro -o intro.md
 
 # ドキュメントサイトのクロールと目次生成
-uv run web2md crawl https://docs.elgato.com/streamdeck/cli/intro \
+web2md crawl https://docs.elgato.com/streamdeck/cli/intro \
   --include "https://docs.elgato.com/streamdeck/cli/**" \
   --frontmatter-fields title,description,source,timestamp \
   -o ./output/streamdeck-cli
