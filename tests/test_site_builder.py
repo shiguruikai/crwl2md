@@ -1,5 +1,3 @@
-"""site_builder モジュールの単体テスト。"""
-
 from __future__ import annotations
 
 import re
@@ -19,13 +17,11 @@ from web2md.site_builder import (
 
 
 def test_normalize_url_key():
-    # Arrange / Act / Assert
     assert normalize_url_key("https://Example.COM/docs/sdk/#section") == "https://example.com/docs/sdk"
     assert normalize_url_key("https://example.com/docs/sdk/index.html") == "https://example.com/docs/sdk"
 
 
 def test_compute_relative_paths_strips_common_prefix_and_avoids_index_collision():
-    # Arrange
     seed_url = "https://docs.example.com/docs/"
     urls = [
         "https://docs.example.com/docs/",
@@ -35,10 +31,8 @@ def test_compute_relative_paths_strips_common_prefix_and_avoids_index_collision(
         "https://docs.example.com/docs/cli/index",
     ]
 
-    # Act
     mapping = compute_relative_paths(urls, seed_url)
 
-    # Assert
     assert mapping["https://docs.example.com/docs/"] == "overview.md"
     assert mapping["https://docs.example.com/docs/sdk/"] == "sdk/overview.md"
     assert mapping["https://docs.example.com/docs/sdk/getting-started/"] == "sdk/getting-started.md"
@@ -47,22 +41,18 @@ def test_compute_relative_paths_strips_common_prefix_and_avoids_index_collision(
 
 
 def test_compute_relative_paths_namespaces_multiple_hosts():
-    # Arrange
     urls = [
         "https://docs.example.com/sdk/start",
         "https://api.example.com/v1/auth",
     ]
 
-    # Act
     mapping = compute_relative_paths(urls, urls[0])
 
-    # Assert
     assert mapping["https://docs.example.com/sdk/start"] == "docs.example.com/sdk/start.md"
     assert mapping["https://api.example.com/v1/auth"] == "api.example.com/v1/auth.md"
 
 
 def test_rewrite_markdown_links_resolves_internal_external_images_and_code_blocks():
-    # Arrange
     url_to_relpath = {
         "https://docs.example.com/docs/sdk/getting-started": "sdk/getting-started.md",
         "https://docs.example.com/docs/cli/intro": "cli/intro.md",
@@ -79,7 +69,6 @@ def test_rewrite_markdown_links_resolves_internal_external_images_and_code_block
         ]
     )
 
-    # Act
     rewritten = rewrite_markdown_links(
         markdown,
         source_url="https://docs.example.com/docs/sdk/getting-started",
@@ -87,7 +76,6 @@ def test_rewrite_markdown_links_resolves_internal_external_images_and_code_block
         url_to_relpath=url_to_relpath,
     )
 
-    # Assert
     assert "[CLI Intro](../cli/intro.md#flags)" in rewritten
     assert "[Same](#install)" in rewritten
     assert "[Unlisted](https://docs.example.com/blog/release)" in rewritten
@@ -97,7 +85,6 @@ def test_rewrite_markdown_links_resolves_internal_external_images_and_code_block
 
 
 def test_generate_toc_files_respects_nav_order_and_subdirectories():
-    # Arrange
     pages = [
         CrawledPageDoc(
             url="https://docs.example.com/docs/sdk/actions",
@@ -126,10 +113,8 @@ def test_generate_toc_files_respects_nav_order_and_subdirectories():
         "https://docs.example.com/docs/sdk/actions",
     ]
 
-    # Act
     tocs = generate_toc_files(pages, nav_order=nav_order, root_title="Example Docs")
 
-    # Assert
     assert set(tocs.keys()) == {"index.md", "sdk/index.md"}
     root_toc = tocs["index.md"]
     assert "# Example Docs" in root_toc
@@ -143,10 +128,8 @@ def test_generate_toc_files_respects_nav_order_and_subdirectories():
 
 
 def test_format_frontmatter_escapes_special_characters_and_includes_utc_timestamp():
-    # Arrange / Act
     fm = format_frontmatter('Guide: "Quotes"', "Line: one", "https://example.com/guide")
 
-    # Assert
     assert fm.startswith("---\n")
     assert 'title: "Guide: \\"Quotes\\""' in fm
     assert 'description: "Line: one"' in fm
@@ -155,10 +138,8 @@ def test_format_frontmatter_escapes_special_characters_and_includes_utc_timestam
 
 
 def test_format_frontmatter_selects_requested_fields_in_order():
-    # Arrange
     fields = parse_frontmatter_fields("timestamp, title, source")
 
-    # Act
     fm = format_frontmatter(
         "Intro",
         "Desc",
@@ -167,7 +148,6 @@ def test_format_frontmatter_selects_requested_fields_in_order():
         fields=fields,
     )
 
-    # Assert
     assert fm == "\n".join(
         [
             "---",
@@ -180,7 +160,6 @@ def test_format_frontmatter_selects_requested_fields_in_order():
 
 
 def test_parse_frontmatter_fields_rejects_invalid_or_empty():
-    # Arrange / Act / Assert
     assert parse_frontmatter_fields(None) == list(FRONTMATTER_FIELDS)
     with pytest.raises(ValueError, match="Unsupported frontmatter field"):
         parse_frontmatter_fields("title,unknown")

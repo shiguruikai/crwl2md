@@ -1,5 +1,3 @@
-"""HTML から Markdown への変換およびメタデータ・ナビゲーション抽出モジュール。"""
-
 from __future__ import annotations
 
 import re
@@ -63,7 +61,7 @@ _MD_FORMAT_RE = re.compile(r"[*_`~]")
 
 
 class PageMetadata(BaseModel):
-    """ページから抽出したタイトルと概要。"""
+    """Extracted title and short description for a document page."""
 
     title: str
     description: str
@@ -88,7 +86,7 @@ def _extract_lang_from_attrs(tag: Tag | None) -> str:
 
 
 def _detect_code_language(el: Tag) -> str:
-    """`<pre>` 要素・内包 `<code>`・最大3階層上の親要素からコードブロックの言語名を検出する。"""
+    # Docusaurus and Shiki often place the language-* class on an outer wrapper up to 3 levels above <pre>.
     code = el.find("code")
     candidates: list[Tag | None] = [code if isinstance(code, Tag) else None, el]
     parent = el.parent
@@ -104,8 +102,25 @@ def _detect_code_language(el: Tag) -> str:
     return ""
 
 
+def _strip_unwanted_dom_elements(container: Tag) -> None:
+    for el in container.find_all(list(_UNWANTED_TAGS)):
+        el.decompose()
+
+    for el in container.select(", ".join(_UNWANTED_SELECTORS)):
+        el.decompose()
+
+    for header in list(container.find_all("header")):
+        # Preserve article title headers (<header><h1>...</h1></header>) while dropping banner headers.
+        if header.get("role") == "banner" or header.find("nav") is not None or header.find("h1") is None:
+            header.decompose()
+
+    for heading in container.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+        for anchor in list(heading.find_all("a")):
+            if _HEADING_ANCHOR_TEXT_RE.match(anchor.get_text()):
+                anchor.decompose()
+
+
 def _normalize_admonitions(container: Tag, soup: BeautifulSoup) -> None:
-    """Docusaurus 等の Admonition 要素を Markdown の引用ブロックへ整形する。"""
     for admonition in list(container.select(".theme-admonition, .admonition")):
         if admonition.find_parent("blockquote") is not None:
             continue
@@ -129,7 +144,6 @@ def _normalize_admonitions(container: Tag, soup: BeautifulSoup) -> None:
 
 
 def _normalize_anchor_newlines(container: Tag) -> None:
-    """`<a>` 要素内の改行を含む空白を単一スペースに正規化する。"""
     for anchor in container.find_all("a"):
         for node in list(anchor.descendants):
             if isinstance(node, NavigableString) and ("\n" in node or "\r" in node):
@@ -138,43 +152,9 @@ def _normalize_anchor_newlines(container: Tag) -> None:
                 node.replace_with(re.sub(r"\s*\r?\n\s*", " ", str(node)))
 
 
-def _strip_unwanted_dom_elements(container: Tag) -> None:
-    """ナビゲーション、目次、パンくず、編集リンク等のノイズ要素を DOM から除去する。"""
-    for tag_name in _UNWANTED_TAGS:
-        for el in list(container.find_all(tag_name)):
-            el.decompose()
-
-    for selector in _UNWANTED_SELECTORS:
-        for el in list(container.select(selector)):
-            el.decompose()
-
-    for header in list(container.find_all("header")):
-        if header.get("role") == "banner" or header.find("nav") is not None or header.find("h1") is None:
-            header.decompose()
-
-    for heading in container.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
-        for anchor in list(heading.find_all("a")):
-            if _HEADING_ANCHOR_TEXT_RE.match(anchor.get_text()):
-                anchor.decompose()
-
-
-def _html_to_markdown(html_fragment: str) -> str:
-    return markdownify(
-        html_fragment,
-        heading_style="ATX",
-        bullets="-",
-        code_language_callback=_detect_code_language,
-    )
-
-
 def _strip_leading_nav_lines(lines: list[str]) -> list[str]:
-    """先頭の `# ` 見出しより前にある短いパンくず・目次行のみを安全に除去する。"""
-    first_h1_idx: int | None = None
-    for idx, line in enumerate(lines[:30]):
-        if line.lstrip().startswith("# "):
-            first_h1_idx = idx
-            break
-
+    # Guard against wiping documents that lack a top-level H1 by dropping preamble only when an H1 appears early.
+    first_h1_idx = next((i for i, line in enumerate(lines[:30]) if line.lstrip().startswith("# ")), None)
     if first_h1_idx is None or first_h1_idx == 0:
         return lines
 
@@ -191,34 +171,26 @@ def _postprocess_markdown(markdown: str, *, strip_leading_nav: bool = False) -> 
     text = markdown.replace("\r\n", "\n").replace("\r", "\n").replace("\u200b", "")
     text = _EMPTY_ANCHOR_RE.sub("", text)
 
-    lines = text.split("\n")
-    if strip_leading_nav:
-        lines = _strip_leading_nav_lines(lines)
-
-    cleaned_lines: list[str] = []
-    for line in lines:
-        if _PAGINATION_LINE_RE.match(line) or _EDIT_PAGE_LINE_RE.match(line):
-            continue
-        cleaned_lines.append(line.rstrip())
-
-    normalized = _MULTI_NEWLINE_RE.sub("\n\n", "\n".join(cleaned_lines))
-    return normalized.strip()
+    lines = _strip_leading_nav_lines(text.split("\n")) if strip_leading_nav else text.split("\n")
+    cleaned_lines = [
+        line.rstrip() for line in lines if not (_PAGINATION_LINE_RE.match(line) or _EDIT_PAGE_LINE_RE.match(line))
+    ]
+    return _MULTI_NEWLINE_RE.sub("\n\n", "\n".join(cleaned_lines)).strip()
 
 
 def _extract_with_dom_markdownify(html: str) -> str:
     soup = BeautifulSoup(html, "lxml")
-    container: Tag | None = None
-    for selector in _MAIN_SELECTORS:
-        found = soup.select_one(selector)
-        if found is not None:
-            container = found
-            break
-
-    target = container if container is not None else soup
+    target = next((el for selector in _MAIN_SELECTORS if (el := soup.select_one(selector)) is not None), soup)
     _strip_unwanted_dom_elements(target)
     _normalize_admonitions(target, soup)
     _normalize_anchor_newlines(target)
-    return _postprocess_markdown(_html_to_markdown(str(target)))
+    raw_markdown = markdownify(
+        str(target),
+        heading_style="ATX",
+        bullets="-",
+        code_language_callback=_detect_code_language,
+    )
+    return _postprocess_markdown(raw_markdown)
 
 
 def _extract_with_crawl4ai(html: str, url: str, crawl4ai_markdown: str | None) -> str:
@@ -227,13 +199,11 @@ def _extract_with_crawl4ai(html: str, url: str, crawl4ai_markdown: str | None) -
 
     target_html = html
     if html.strip():
-        soup = BeautifulSoup(html, "lxml")
-        main_el = soup.select_one("main")
+        main_el = BeautifulSoup(html, "lxml").select_one("main")
         if main_el is not None:
             target_html = str(main_el)
 
-    generator = DefaultMarkdownGenerator()
-    result = generator.generate_markdown(input_html=target_html, base_url=url, citations=False)
+    result = DefaultMarkdownGenerator().generate_markdown(input_html=target_html, base_url=url, citations=False)
     return _postprocess_markdown(result.raw_markdown, strip_leading_nav=True)
 
 
@@ -243,15 +213,13 @@ def extract_markdown(
     method: ExtractorType = "dom-markdownify",
     crawl4ai_markdown: str | None = None,
 ) -> str:
-    """指定した抽出手法を用いて HTML をクレンジング済み Markdown へ変換する。"""
+    """Convert HTML into cleaned Markdown using the specified extraction method."""
     if not html.strip() and crawl4ai_markdown is None:
         return ""
-
     if method == "dom-markdownify":
         return _extract_with_dom_markdownify(html)
     if method == "crawl4ai":
         return _extract_with_crawl4ai(html, url, crawl4ai_markdown)
-
     raise ValueError(f"Unsupported extractor method: {method}")
 
 
@@ -280,11 +248,11 @@ def _extract_first_paragraph(markdown: str) -> str:
             continue
         if in_code_block:
             continue
-        if not stripped:
-            if paragraph_lines:
-                break
-            continue
-        if stripped.startswith(("#", "-", "*", ">", "|", "![", "---")) or re.match(r"^\d+\.\s+", stripped):
+        if (
+            not stripped
+            or stripped.startswith(("#", "-", "*", ">", "|", "![", "---"))
+            or re.match(r"^\d+\.\s+", stripped)
+        ):
             if paragraph_lines:
                 break
             continue
@@ -293,8 +261,7 @@ def _extract_first_paragraph(markdown: str) -> str:
     if not paragraph_lines:
         return ""
 
-    joined = " ".join(paragraph_lines)
-    joined = _MD_LINK_RE.sub(r"\1", joined)
+    joined = _MD_LINK_RE.sub(r"\1", " ".join(paragraph_lines))
     joined = _MD_FORMAT_RE.sub("", joined)
     return re.sub(r"\s+", " ", joined).strip()
 
@@ -306,28 +273,16 @@ def _truncate_text(text: str, max_length: int = 150) -> str:
     return clean[: max_length - 3].rstrip() + "..."
 
 
-def _clean_html_title(raw_title: str) -> str:
-    title = re.sub(r"\s+", " ", raw_title).strip()
-    for sep in (" | ", " - ", " — ", " · "):
-        if sep in title:
-            prefix = title.split(sep, 1)[0].strip()
-            if prefix:
-                return prefix
-    return title
-
-
 def extract_page_metadata(html: str, markdown: str, fallback_title: str = "") -> PageMetadata:
-    """HTML と変換後 Markdown からページのタイトルおよび概要文を抽出する。"""
+    """Extract page title and description from HTML metadata and rendered Markdown."""
     soup = BeautifulSoup(html, "lxml") if html.strip() else BeautifulSoup("", "lxml")
 
     title = _extract_first_h1_from_markdown(markdown)
-    if not title:
-        h1 = soup.find("h1")
-        if h1 is not None:
-            for anchor in list(h1.find_all("a")):
-                if _HEADING_ANCHOR_TEXT_RE.match(anchor.get_text()):
-                    anchor.decompose()
-            title = re.sub(r"\s+", " ", h1.get_text()).strip()
+    if not title and (h1 := soup.find("h1")) is not None:
+        for anchor in list(h1.find_all("a")):
+            if _HEADING_ANCHOR_TEXT_RE.match(anchor.get_text()):
+                anchor.decompose()
+        title = re.sub(r"\s+", " ", h1.get_text()).strip()
 
     if not title:
         og_title = soup.select_one('meta[property="og:title"]')
@@ -335,7 +290,12 @@ def extract_page_metadata(html: str, markdown: str, fallback_title: str = "") ->
             title = str(og_title["content"]).strip()
 
     if not title and soup.title is not None:
-        title = _clean_html_title(soup.title.get_text())
+        raw_title = re.sub(r"\s+", " ", soup.title.get_text()).strip()
+        for sep in (" | ", " - ", " — ", " · "):
+            if sep in raw_title and (prefix := raw_title.split(sep, 1)[0].strip()):
+                raw_title = prefix
+                break
+        title = raw_title
 
     if not title:
         title = fallback_title.strip() or "Untitled"
@@ -343,31 +303,23 @@ def extract_page_metadata(html: str, markdown: str, fallback_title: str = "") ->
     description = ""
     for meta_selector in ('meta[name="description"]', 'meta[property="og:description"]'):
         meta = soup.select_one(meta_selector)
-        if meta is not None and isinstance(meta.get("content"), str):
-            candidate = str(meta["content"]).strip()
-            if candidate:
-                description = _truncate_text(candidate)
-                break
+        if meta is not None and isinstance(meta.get("content"), str) and (candidate := str(meta["content"]).strip()):
+            description = _truncate_text(candidate)
+            break
 
-    if not description:
-        first_para = _extract_first_paragraph(markdown)
-        if first_para:
-            description = _truncate_text(first_para)
+    if not description and (first_para := _extract_first_paragraph(markdown)):
+        description = _truncate_text(first_para)
 
-    if not description:
-        description = title
-
-    return PageMetadata(title=title, description=description)
+    return PageMetadata(title=title, description=description or title)
 
 
 def extract_sidebar_links(html: str, base_url: str) -> list[str]:
-    """サイドバーやナビゲーション DOM からドキュメントリンクを出現順に抽出する。"""
+    """Extract ordered, same-host document URLs from sidebar navigation DOM."""
     if not html.strip():
         return []
 
     soup = BeautifulSoup(html, "lxml")
     base_host = urlparse(base_url).netloc.lower() if base_url else ""
-
     sidebar_selectors = (
         "aside nav",
         "nav.menu",
@@ -383,10 +335,7 @@ def extract_sidebar_links(html: str, base_url: str) -> list[str]:
     seen: set[str] = set()
 
     for selector in sidebar_selectors:
-        containers = soup.select(selector)
-        if not containers:
-            continue
-        for container in containers:
+        for container in soup.select(selector):
             aria_label = str(container.get("aria-label") or "").lower()
             raw_classes = container.get("class")
             classes = (

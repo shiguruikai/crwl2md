@@ -1,5 +1,3 @@
-"""crawler および CLI モジュールのテスト。"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,8 +12,6 @@ from web2md.crawler import build_filter_chain, compile_url_pattern
 
 
 class _FakeCrawler:
-    """ネットワーク通信なしで crawl_site をテストするためのフェイククローラー。"""
-
     def __init__(self, results: list[CrawlResult] | list[CrawlResultContainer[CrawlResult]]) -> None:
         self._results = results
 
@@ -26,7 +22,6 @@ class _FakeCrawler:
 
 
 def test_cli_convert_local_file_to_output(tmp_path: Path):
-    # Arrange
     html_file = tmp_path / "sample.html"
     html_file.write_text(
         "<html><head><title>Local</title></head><body><main><h1>Hello</h1><p>World</p></main></body></html>",
@@ -34,10 +29,8 @@ def test_cli_convert_local_file_to_output(tmp_path: Path):
     )
     out_file = tmp_path / "out.md"
 
-    # Act
     exit_code = main(["convert", str(html_file), "-o", str(out_file), "--frontmatter"])
 
-    # Assert
     assert exit_code == 0
     content = out_file.read_text(encoding="utf-8")
     assert 'title: "Hello"' in content
@@ -46,7 +39,6 @@ def test_cli_convert_local_file_to_output(tmp_path: Path):
 
 
 def test_cli_convert_local_file_with_frontmatter_fields(tmp_path: Path):
-    # Arrange
     html_file = tmp_path / "sample.html"
     html_file.write_text(
         "<html><head><title>Local</title></head><body><main><h1>Hello</h1><p>World</p></main></body></html>",
@@ -54,10 +46,8 @@ def test_cli_convert_local_file_with_frontmatter_fields(tmp_path: Path):
     )
     out_file = tmp_path / "out.md"
 
-    # Act
     exit_code = main(["convert", str(html_file), "-o", str(out_file), "--frontmatter-fields", "title,timestamp"])
 
-    # Assert
     assert exit_code == 0
     content = out_file.read_text(encoding="utf-8")
     assert 'title: "Hello"' in content
@@ -67,19 +57,15 @@ def test_cli_convert_local_file_with_frontmatter_fields(tmp_path: Path):
 
 
 def test_cli_convert_missing_file_returns_error(tmp_path: Path):
-    # Arrange
     missing = tmp_path / "does_not_exist.html"
 
-    # Act
     exit_code = main(["convert", str(missing)])
 
-    # Assert
     assert exit_code == 1
 
 
 @pytest.mark.asyncio
 async def test_crawl_site_writes_markdown_and_toc(tmp_path: Path):
-    # Arrange
     seed_html = """
     <html><head><title>SDK Overview</title></head><body>
       <aside><nav>
@@ -132,10 +118,8 @@ async def test_crawl_site_writes_markdown_and_toc(tmp_path: Path):
         frontmatter=True,
     )
 
-    # Act
     summary = await crawl_site(config, crawler=fake_crawler)
 
-    # Assert
     assert summary.page_count == 3
     assert summary.toc_count == 1
     assert summary.failed_urls == ["https://example.com/docs/sdk/broken"]
@@ -156,12 +140,10 @@ async def test_crawl_site_writes_markdown_and_toc(tmp_path: Path):
 
 
 def test_compile_url_pattern_glob_double_star():
-    # Arrange
     pattern = compile_url_pattern("https://docs.elgato.com/streamdeck/cli/**")
     path_pattern = compile_url_pattern("/streamdeck/cli/**")
     suffix_pattern = compile_url_pattern("*.pdf")
 
-    # Act / Assert
     assert pattern.search("https://docs.elgato.com/streamdeck/cli")
     assert pattern.search("https://docs.elgato.com/streamdeck/cli/")
     assert pattern.search("https://docs.elgato.com/streamdeck/cli/intro")
@@ -178,15 +160,14 @@ def test_compile_url_pattern_glob_double_star():
 
 @pytest.mark.asyncio
 async def test_build_filter_chain_uses_include_patterns(tmp_path: Path):
-    # Arrange
     config = CrawlConfig(
         url="https://docs.elgato.com/streamdeck/cli/commands/create",
         output_dir=tmp_path / "out",
         include_patterns=["https://docs.elgato.com/streamdeck/cli/**"],
     )
+
     chain = build_filter_chain(config)
 
-    # Act / Assert
     assert await chain.apply("https://docs.elgato.com/streamdeck/cli/intro")
     assert await chain.apply("https://docs.elgato.com/streamdeck/cli/commands/pack")
     assert not await chain.apply("https://docs.elgato.com/streamdeck/sdk/actions")
@@ -194,14 +175,12 @@ async def test_build_filter_chain_uses_include_patterns(tmp_path: Path):
 
 
 def test_python_api_crawl_site_sync_with_direct_args(tmp_path: Path):
-    # Arrange
     html = "<html><body><main><h1>Intro</h1><p>Welcome.</p></main></body></html>"
     fake_crawler = _FakeCrawler(
         [CrawlResultContainer(CrawlResult(url="https://docs.elgato.com/streamdeck/cli/intro", html=html, success=True))]
     )
     out_dir = tmp_path / "cli_out"
 
-    # Act
     summary = crawl_site_sync(
         "https://docs.elgato.com/streamdeck/cli/intro",
         out_dir,
@@ -210,7 +189,6 @@ def test_python_api_crawl_site_sync_with_direct_args(tmp_path: Path):
         crawler=fake_crawler,
     )
 
-    # Assert
     assert summary.page_count == 1
     assert (out_dir / "intro.md").is_file()
     assert (out_dir / "index.md").is_file()

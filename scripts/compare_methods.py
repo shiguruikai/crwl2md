@@ -1,5 +1,3 @@
-"""HTML→Markdown 変換手法および目次生成手法の比較検証スクリプト。"""
-
 from __future__ import annotations
 
 import argparse
@@ -19,7 +17,7 @@ from web2md.site_builder import CrawledPageDoc, compute_relative_paths, generate
 
 @dataclass(frozen=True)
 class HtmlFixture:
-    """比較検証用の代表的な HTML フィクスチャ。"""
+    """Representative HTML page fixture for extraction benchmarks."""
 
     name: str
     url: str
@@ -155,7 +153,7 @@ class CounterAction:
 
 
 def benchmark_extractors(iterations: int = 5, dump: bool = False) -> None:
-    """4種類の HTML→Markdown 抽出手法を複数フィクスチャで比較する。"""
+    """Run HTML-to-Markdown extraction benchmarks across all fixtures."""
     print("## HTML → Markdown 抽出手法の比較\n")
     for fixture in FIXTURES:
         print(f"### {fixture.name}")
@@ -195,10 +193,10 @@ def _extract_order_from_toc(toc_md: str) -> list[str]:
 
 
 def benchmark_toc_generation() -> None:
-    """目次（index.md）生成手法を比較する。"""
+    """Compare URL-order vs sidebar-DOM-order TOC generation."""
     print("## 目次（index.md）生成手法の比較\n")
     seed_url = "https://docs.example.com/docs/sdk/getting-started"
-    # 意図的にサイドバー順と逆順・アルファベット順が異なる入力順を用意する。
+    # Intentionally supply pages out of sidebar order to verify DOM ordering takes precedence.
     sample_pages = [
         (
             "https://docs.example.com/docs/sdk/settings",
@@ -260,7 +258,7 @@ def benchmark_toc_generation() -> None:
 
 
 def benchmark_metadata_extraction() -> None:
-    """メタデータ抽出の動作確認を表示する。"""
+    """Print extracted page metadata samples across fixtures."""
     print("\n## メタデータ抽出サンプル\n")
     for fixture in FIXTURES:
         md = extract_markdown(fixture.html, url=fixture.url, method="dom-markdownify")
@@ -269,6 +267,7 @@ def benchmark_metadata_extraction() -> None:
 
 
 def main() -> None:
+    """CLI entrypoint for running method comparison benchmarks."""
     parser = argparse.ArgumentParser(description="Compare HTML-to-Markdown and TOC generation methods.")
     parser.add_argument("--iterations", type=int, default=5, help="Benchmark iterations per fixture (default: 5).")
     parser.add_argument("--dump", action="store_true", help="Print full extracted Markdown samples for inspection.")

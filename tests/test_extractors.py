@@ -1,5 +1,3 @@
-"""extractors モジュールの単体テスト。"""
-
 from __future__ import annotations
 
 import pytest
@@ -69,13 +67,10 @@ uv run web2md --help</code></pre>
 
 
 def test_extract_markdown_dom_markdownify():
-    # Arrange
     html = SAMPLE_DOCUSAURUS_HTML
 
-    # Act
     md = extract_markdown(html, url="https://docs.example.com/docs/sdk/getting-started", method="dom-markdownify")
 
-    # Assert
     assert "# Getting Started" in md
     assert "Install the CLI and run your first **project**." in md
     assert "```bash\nuv add web2md\nuv run web2md --help\n```" in md
@@ -89,7 +84,6 @@ def test_extract_markdown_dom_markdownify():
 
 
 def test_extract_markdown_crawl4ai_cleans_nav_and_preserves_body():
-    # Arrange
     raw_c4ai = "\n".join(
         [
             "* [Home](https://docs.example.com/)",
@@ -104,10 +98,8 @@ def test_extract_markdown_crawl4ai_cleans_nav_and_preserves_body():
         ]
     )
 
-    # Act
     md = extract_markdown(SAMPLE_DOCUSAURUS_HTML, method="crawl4ai", crawl4ai_markdown=raw_c4ai)
 
-    # Assert
     assert md.startswith("# Getting Started\n")
     assert "Body paragraph here." in md
     assert "Edit this page" not in md
@@ -116,20 +108,16 @@ def test_extract_markdown_crawl4ai_cleans_nav_and_preserves_body():
 
 
 def test_extract_markdown_crawl4ai_preserves_content_without_h1():
-    # Arrange
     raw_c4ai = "Intro paragraph without top-level heading.\n\n## Section\n\nDetails."
 
-    # Act
     md = extract_markdown("<html><body><p>Intro</p></body></html>", method="crawl4ai", crawl4ai_markdown=raw_c4ai)
 
-    # Assert
     assert "Intro paragraph without top-level heading." in md
     assert "## Section" in md
 
 
 @pytest.mark.parametrize("method", EXTRACTOR_METHODS)
 def test_extract_markdown_all_methods_extract_main_text(method):
-    # Arrange
     html = """
     <html><head><title>Guide | Docs</title></head>
     <body>
@@ -141,15 +129,12 @@ def test_extract_markdown_all_methods_extract_main_text(method):
     </body></html>
     """
 
-    # Act
     md = extract_markdown(html, url="https://docs.example.com/guide", method=method)
 
-    # Assert
     assert "clean Markdown files" in md
 
 
 def test_extract_markdown_dom_markdownify_supports_nested_code_lang_admonition_and_multiline_links():
-    # Arrange
     html = """
     <html><body><main>
       <h1>Install</h1>
@@ -168,43 +153,34 @@ def test_extract_markdown_dom_markdownify_supports_nested_code_lang_admonition_a
     </main></body></html>
     """
 
-    # Act
     md = extract_markdown(html, method="dom-markdownify")
 
-    # Assert
     assert "```bash\nnpm install -g @elgato/cli\n```" in md
     assert "> **info**" in md
     assert "> Read [Install Node.js on Windows](https://example.com/win) for details." in md
 
 
 def test_extract_markdown_unsupported_method_raises():
-    # Arrange / Act / Assert
     with pytest.raises(ValueError, match="Unsupported extractor method"):
         extract_markdown("<p>hi</p>", method="unknown")  # type: ignore[arg-type]
 
 
 def test_extract_markdown_empty_input():
-    # Arrange / Act
     md = extract_markdown("   ")
 
-    # Assert
     assert md == ""
 
 
 def test_extract_page_metadata_prefers_h1_and_meta_description():
-    # Arrange
     md = "# Getting Started\n\nFallback paragraph text."
 
-    # Act
     meta = extract_page_metadata(SAMPLE_DOCUSAURUS_HTML, md)
 
-    # Assert
     assert meta.title == "Getting Started"
     assert meta.description == "Learn how to install and configure Example SDK in minutes."
 
 
 def test_extract_page_metadata_falls_back_to_first_paragraph():
-    # Arrange
     html = "<html><head><title>API Reference | MySite</title></head><body></body></html>"
     md = "\n".join(
         [
@@ -218,22 +194,17 @@ def test_extract_page_metadata_falls_back_to_first_paragraph():
         ]
     )
 
-    # Act
     meta = extract_page_metadata(html, md)
 
-    # Assert
     assert meta.title == "API Reference"
     assert meta.description == "This is the first paragraph with bold text."
 
 
 def test_extract_sidebar_links_extracts_ordered_same_host_links():
-    # Arrange
     base_url = "https://docs.example.com/docs/sdk/getting-started"
 
-    # Act
     links = extract_sidebar_links(SAMPLE_DOCUSAURUS_HTML, base_url)
 
-    # Assert
     assert links == [
         "https://docs.example.com/docs/intro",
         "https://docs.example.com/docs/sdk/getting-started",

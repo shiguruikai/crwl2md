@@ -1,5 +1,3 @@
-"""web2md CLI エントリポイント。"""
-
 from __future__ import annotations
 
 import argparse
@@ -29,7 +27,7 @@ def _add_frontmatter_options(subparser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """CLI 引数パーサーを構築する。"""
+    """Build the argument parser for the `web2md` CLI."""
     parser = argparse.ArgumentParser(
         prog="web2md",
         description="Convert HTML pages or crawl documentation sites into Markdown with table of contents.",
@@ -93,16 +91,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _write_stdout_utf8(text: str) -> None:
-    if hasattr(sys.stdout, "buffer"):
-        sys.stdout.buffer.write(text.encode("utf-8"))
-        sys.stdout.buffer.flush()
-    else:
-        sys.stdout.write(text)
-
-
 def main(argv: Sequence[str] | None = None) -> int:
-    """CLI のメインエントリポイント。"""
+    """Run the `web2md` CLI entrypoint and return a process exit code."""
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -122,8 +112,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(markdown, encoding="utf-8", newline="\n")
                 print(f"Saved Markdown to {args.output}")
+            elif hasattr(sys.stdout, "buffer"):
+                sys.stdout.buffer.write(markdown.encode("utf-8"))
+                sys.stdout.buffer.flush()
             else:
-                _write_stdout_utf8(markdown)
+                sys.stdout.write(markdown)
             return 0
 
         if args.command == "crawl":

@@ -1,5 +1,3 @@
-"""Web ページの取得、単一ページ変換、およびサイトクロール処理モジュール。"""
-
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +6,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, overload
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 import httpx
@@ -50,7 +48,7 @@ _NON_HTML_ASSET_RE = re.compile(
 
 
 class CrawlConfig(BaseModel):
-    """サイトクロール実行時の設定。"""
+    """Configuration for crawling a documentation website."""
 
     url: str
     output_dir: Path
@@ -66,7 +64,7 @@ class CrawlConfig(BaseModel):
 
 
 class CrawlSummary(BaseModel):
-    """サイトクロールの実行結果サマリー。"""
+    """Summary returned after completing a site crawl."""
 
     seed_url: str
     output_dir: Path
@@ -78,12 +76,26 @@ class CrawlSummary(BaseModel):
 
 def _resolve_local_path(source: str) -> Path:
     if source.startswith("file://"):
-        parsed = urlparse(source)
-        raw_path = unquote(parsed.path)
+        raw_path = unquote(urlparse(source).path)
         if re.match(r"^/[A-Za-z]:", raw_path):
             raw_path = raw_path[1:]
         return Path(raw_path)
     return Path(source)
+
+
+def _flatten_crawl_results(raw_result: Any) -> list[CrawlResult]:
+    # CrawlResult is a Pydantic BaseModel (iterable of field tuples), so check it before Iterable,
+    # and unwrap CrawlResultContainer objects yielded by Crawl4AI deep crawling.
+    if isinstance(raw_result, CrawlResult):
+        return [raw_result]
+    if isinstance(raw_result, (str, bytes, Mapping)):
+        return []
+    if isinstance(raw_result, Iterable):
+        results: list[CrawlResult] = []
+        for item in raw_result:
+            results.extend(_flatten_crawl_results(item))
+        return results
+    return []
 
 
 async def _fetch_single_with_crawl4ai(url: str) -> tuple[str, str, str | None]:
@@ -101,7 +113,7 @@ async def _fetch_single_with_crawl4ai(url: str) -> tuple[str, str, str | None]:
 
 
 def fetch_html(url: str, timeout: float = 30.0) -> tuple[str, str]:
-    """HTTP(S) で単一ページの HTML と最終 URL を取得する。"""
+    """Fetch HTML and the resolved final URL over HTTP(S)."""
     response = httpx.get(url, follow_redirects=True, timeout=timeout)
     response.raise_for_status()
     return response.text, str(response.url)
@@ -124,7 +136,7 @@ def convert_single(
     frontmatter: bool = False,
     frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
 ) -> str:
-    """単一の URL またはローカル HTML ファイルを Markdown 文字列へ変換する。"""
+    """Convert a single HTTP(S) URL or local HTML file into Markdown."""
     resolved_fields = _resolve_frontmatter_fields(frontmatter, frontmatter_fields)
 
     crawl4ai_markdown: str | None = None
@@ -169,10 +181,11 @@ def _glob_to_regex(pattern: str, *, leading_star_any: bool = False) -> str:
 
 
 def compile_url_pattern(pattern: str | re.Pattern[str]) -> re.Pattern[str]:
-    """Glob（`*` / `**`）または正規表現文字列を `re.Pattern` へ変換する。"""
+    """Compile a URL glob (`*` / `**`) or regex string into a `re.Pattern`."""
     if isinstance(pattern, re.Pattern):
         return pattern
 
+    # Pre-compile globs here because Crawl4AI's URLPatternFilter runs fnmatch.translate on `**` strings.
     raw = pattern.strip()
     if raw.startswith("^") or raw.endswith("$"):
         return re.compile(raw)
@@ -206,13 +219,11 @@ def _build_path_scope_regex(seed_url: str) -> re.Pattern[str] | None:
 
 
 def build_filter_chain(config: CrawlConfig) -> FilterChain:
-    """クロール設定から Crawl4AI 用の URL フィルターチェーンを構築する。"""
+    """Build a Crawl4AI `FilterChain` enforcing domain, asset, and path-scope rules."""
     parsed = urlparse(config.url)
     filters: list[Any] = []
 
-    allowed_domains: list[str] = []
-    if parsed.netloc:
-        allowed_domains.append(parsed.netloc)
+    allowed_domains: list[str] = [parsed.netloc] if parsed.netloc else []
     for pat in config.include_patterns:
         if "://" in pat:
             pat_host = urlparse(pat.replace("*", "x")).netloc
@@ -237,19 +248,6 @@ def build_filter_chain(config: CrawlConfig) -> FilterChain:
         filters.append(URLPatternFilter(patterns=compiled_excludes, reverse=True))
 
     return FilterChain(filters)
-
-
-def _flatten_crawl_results(raw_result: Any) -> list[CrawlResult]:
-    if isinstance(raw_result, CrawlResult):
-        return [raw_result]
-    if isinstance(raw_result, (str, bytes, Mapping)):
-        return []
-    if isinstance(raw_result, Iterable):
-        results: list[CrawlResult] = []
-        for item in raw_result:
-            results.extend(_flatten_crawl_results(item))
-        return results
-    return []
 
 
 def _resolve_crawl_config(
@@ -286,28 +284,6 @@ def _resolve_crawl_config(
     )
 
 
-@overload
-async def crawl_site(url_or_config: CrawlConfig, *, crawler: Any | None = None) -> CrawlSummary: ...
-
-
-@overload
-async def crawl_site(
-    url_or_config: str,
-    output_dir: str | Path,
-    *,
-    max_depth: int = 2,
-    max_pages: int = 100,
-    method: ExtractorType = "dom-markdownify",
-    include_patterns: Sequence[str] = (),
-    exclude_patterns: Sequence[str] = (),
-    allow_all_paths: bool = False,
-    frontmatter: bool = False,
-    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
-    verbose: bool = False,
-    crawler: Any | None = None,
-) -> CrawlSummary: ...
-
-
 async def crawl_site(
     url_or_config: CrawlConfig | str,
     output_dir: str | Path | None = None,
@@ -323,7 +299,7 @@ async def crawl_site(
     verbose: bool = False,
     crawler: Any | None = None,
 ) -> CrawlSummary:
-    """ドキュメントサイトをクロールし、リンク解決済みの Markdown と目次群を出力する。"""
+    """Crawl a documentation site and write link-rewritten Markdown files and `index.md` TOCs."""
     config = _resolve_crawl_config(
         url_or_config,
         output_dir,
@@ -337,14 +313,13 @@ async def crawl_site(
         frontmatter_fields=frontmatter_fields,
         verbose=verbose,
     )
-    filter_chain = build_filter_chain(config)
     run_config = CrawlerRunConfig(
         stream=False,
         target_elements=["main"],
         deep_crawl_strategy=BFSDeepCrawlStrategy(
             max_depth=config.max_depth,
             max_pages=config.max_pages,
-            filter_chain=filter_chain,
+            filter_chain=build_filter_chain(config),
             include_external=False,
         ),
         scraping_strategy=LXMLWebScrapingStrategy(),
@@ -359,13 +334,11 @@ async def crawl_site(
         async with AsyncWebCrawler(config=browser_config) as active_crawler:
             raw_results = await active_crawler.arun(config.url, config=run_config)
 
-    all_results = _flatten_crawl_results(raw_results)
-
     failed_urls: list[str] = []
     deduped_results: list[CrawlResult] = []
     seen_keys: set[str] = set()
 
-    for res in all_results:
+    for res in _flatten_crawl_results(raw_results):
         final_url = res.redirected_url or res.url
         if not res.success:
             failed_urls.append(final_url)
@@ -459,28 +432,6 @@ async def crawl_site(
     )
 
 
-@overload
-def crawl_site_sync(url_or_config: CrawlConfig, *, crawler: Any | None = None) -> CrawlSummary: ...
-
-
-@overload
-def crawl_site_sync(
-    url_or_config: str,
-    output_dir: str | Path,
-    *,
-    max_depth: int = 2,
-    max_pages: int = 100,
-    method: ExtractorType = "dom-markdownify",
-    include_patterns: Sequence[str] = (),
-    exclude_patterns: Sequence[str] = (),
-    allow_all_paths: bool = False,
-    frontmatter: bool = False,
-    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
-    verbose: bool = False,
-    crawler: Any | None = None,
-) -> CrawlSummary: ...
-
-
 def crawl_site_sync(
     url_or_config: CrawlConfig | str,
     output_dir: str | Path | None = None,
@@ -496,7 +447,7 @@ def crawl_site_sync(
     verbose: bool = False,
     crawler: Any | None = None,
 ) -> CrawlSummary:
-    """`crawl_site` の同期版ラッパー。"""
+    """Synchronous wrapper around `crawl_site`."""
     config = _resolve_crawl_config(
         url_or_config,
         output_dir,
