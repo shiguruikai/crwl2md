@@ -1,0 +1,147 @@
+"""web2md CLI エントリポイント。"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import sys
+from collections.abc import Sequence
+from pathlib import Path
+
+import httpx
+
+from web2md.crawler import CrawlConfig, convert_single, crawl_site
+from web2md.extractors import EXTRACTOR_METHODS
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """CLI 引数パーサーを構築する。"""
+    parser = argparse.ArgumentParser(
+        prog="web2md",
+        description="Convert HTML pages or crawl documentation sites into Markdown with table of contents.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    convert_parser = subparsers.add_parser(
+        "convert",
+        help="Convert a single URL or local HTML file to Markdown.",
+    )
+    convert_parser.add_argument("source", help="Source URL or local HTML file path.")
+    convert_parser.add_argument("-o", "--output", type=Path, help="Output Markdown file path (default: stdout).")
+    convert_parser.add_argument(
+        "--method",
+        choices=EXTRACTOR_METHODS,
+        default="dom-markdownify",
+        help="HTML-to-Markdown extraction method (default: dom-markdownify).",
+    )
+    convert_parser.add_argument(
+        "--frontmatter",
+        action="store_true",
+        help="Prepend YAML frontmatter to output Markdown.",
+    )
+
+    crawl_parser = subparsers.add_parser(
+        "crawl",
+        help="Crawl a documentation website and generate Markdown files with index.md TOCs.",
+    )
+    crawl_parser.add_argument("url", help="Seed URL to start crawling from.")
+    crawl_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        required=True,
+        help="Output directory for Markdown files and index.md.",
+    )
+    crawl_parser.add_argument("--max-depth", type=int, default=2, help="Maximum crawl depth (default: 2).")
+    crawl_parser.add_argument("--max-pages", type=int, default=100, help="Maximum number of pages (default: 100).")
+    crawl_parser.add_argument(
+        "--method",
+        choices=EXTRACTOR_METHODS,
+        default="dom-markdownify",
+        help="HTML-to-Markdown extraction method (default: dom-markdownify).",
+    )
+    crawl_parser.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        help="URL pattern to include (repeatable).",
+    )
+    crawl_parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help="URL pattern to exclude (repeatable).",
+    )
+    crawl_parser.add_argument(
+        "--allow-all-paths",
+        action="store_true",
+        help="Allow crawling any path on the seed domain instead of restricting to the seed path prefix.",
+    )
+    crawl_parser.add_argument(
+        "--frontmatter",
+        action="store_true",
+        help="Prepend YAML frontmatter to each generated Markdown document.",
+    )
+    crawl_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose crawler logging.")
+
+    return parser
+
+
+def _write_stdout_utf8(text: str) -> None:
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout.buffer.write(text.encode("utf-8"))
+        sys.stdout.buffer.flush()
+    else:
+        sys.stdout.write(text)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """CLI のメインエントリポイント。"""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        if args.command == "convert":
+            markdown = convert_single(args.source, method=args.method, frontmatter=args.frontmatter)
+            if args.output is not None:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(markdown, encoding="utf-8", newline="\n")
+                print(f"Saved Markdown to {args.output}")
+            else:
+                _write_stdout_utf8(markdown)
+            return 0
+
+        if args.command == "crawl":
+            config = CrawlConfig(
+                url=args.url,
+                output_dir=args.output,
+                max_depth=args.max_depth,
+                max_pages=args.max_pages,
+                method=args.method,
+                include_patterns=args.include,
+                exclude_patterns=args.exclude,
+                allow_all_paths=args.allow_all_paths,
+                frontmatter=args.frontmatter,
+                verbose=args.verbose,
+            )
+            summary = asyncio.run(crawl_site(config))
+            print(
+                f"Crawled {summary.page_count} pages and generated {summary.toc_count} index files in {summary.output_dir}"
+            )
+            if summary.failed_urls:
+                print(f"Failed URLs ({len(summary.failed_urls)}):", file=sys.stderr)
+                for url in summary.failed_urls:
+                    print(f"  - {url}", file=sys.stderr)
+            return 0
+
+        parser.error(f"Unknown command: {args.command}")
+        return 2
+    except KeyboardInterrupt:
+        return 130
+    except (FileNotFoundError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
