@@ -43,7 +43,7 @@ task setup
 ### `web2md --help`
 
 ```text
-usage: web2md [-h] {convert,crawl} ...
+usage: web2md [-h] [--version] {convert,crawl} ...
 
 Convert HTML pages or crawl documentation sites into Markdown with table of contents.
 
@@ -54,21 +54,20 @@ positional arguments:
 
 options:
   -h, --help       show this help message and exit
+  --version        show program's version number and exit
 ```
 
 ### `web2md convert --help`
 
 ```text
-usage: web2md convert [-h] [-o OUTPUT] [--method {dom-markdownify,crawl4ai}] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] source
+usage: web2md convert [-h] [-o OUTPUT] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] source
 
 positional arguments:
-  source                Source URL or local HTML file path.
+  source                Source URL, file:// URI, or local HTML file path.
 
 options:
   -h, --help            show this help message and exit
   -o, --output OUTPUT   Output Markdown file path (default: stdout).
-  --method {dom-markdownify,crawl4ai}
-                        HTML-to-Markdown extraction method (default: dom-markdownify).
   --frontmatter         Prepend YAML frontmatter to output Markdown.
   --frontmatter-fields FRONTMATTER_FIELDS
                         Comma-separated YAML frontmatter fields (title,description,source,timestamp). Enables frontmatter when set.
@@ -77,7 +76,7 @@ options:
 ### `web2md crawl --help`
 
 ```text
-usage: web2md crawl [-h] -o OUTPUT [--max-depth MAX_DEPTH] [--max-pages MAX_PAGES] [--method {dom-markdownify,crawl4ai}] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
+usage: web2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--respect-robots] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
 
 positional arguments:
   url                   Seed URL to start crawling from.
@@ -85,15 +84,12 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   -o, --output OUTPUT   Output directory for Markdown files and index.md.
-  --max-depth MAX_DEPTH
-                        Maximum crawl depth (default: 2).
-  --max-pages MAX_PAGES
-                        Maximum number of pages (default: 100).
-  --method {dom-markdownify,crawl4ai}
-                        HTML-to-Markdown extraction method (default: dom-markdownify).
-  --include INCLUDE     URL pattern to include (repeatable).
-  --exclude EXCLUDE     URL pattern to exclude (repeatable).
-  --allow-all-paths     Allow crawling any path on the seed domain instead of restricting to the seed path prefix.
+  --max-depth N         Maximum crawl depth (default: 2).
+  --max-pages N         Maximum number of pages (default: 100).
+  --include INCLUDE     URL pattern to crawl: glob or regex, repeatable. Replaces the default seed-directory scope.
+  --exclude EXCLUDE     URL pattern to skip: glob or regex, repeatable.
+  --allow-all-paths     Allow crawling any path on the seed domain instead of restricting to the seed URL's directory.
+  --respect-robots      Skip pages that the site's robots.txt disallows.
   --frontmatter         Prepend YAML frontmatter to output Markdown.
   --frontmatter-fields FRONTMATTER_FIELDS
                         Comma-separated YAML frontmatter fields (title,description,source,timestamp). Enables frontmatter when set.
@@ -111,16 +107,90 @@ web2md crawl https://docs.elgato.com/streamdeck/cli/intro \
   --include "https://docs.elgato.com/streamdeck/cli/**" \
   --frontmatter-fields title,description,source,timestamp \
   -o ./output/streamdeck-cli
+
+# ローカルで起動したドキュメントサーバーのクロール
+web2md crawl http://localhost:3000/docs/ -o ./output/local-docs
 ```
 
 Python API 例:
 
 ```python
-from web2md import crawl_site_sync
+from pathlib import Path
+
+from web2md import convert_single, crawl_site_sync
+
+markdown = convert_single(Path("page.html"), frontmatter=True)
 
 summary = crawl_site_sync(
     "https://docs.elgato.com/streamdeck/cli/intro",
     "output/streamdeck-cli",
     include_patterns=["https://docs.elgato.com/streamdeck/cli/**"],
 )
+for page in summary.failed_pages:
+    print(page.url, page.reason)
 ```
+
+## クロール範囲
+
+`crawl` は、起点 URL と同じホストのうち、次の範囲にあるリンクだけを辿ります。適用する範囲は、開始時に `Crawl scope: ...` として標準エラー出力に表示します。
+
+| 起点 URL | 既定の範囲 |
+| --- | --- |
+| `https://example.com/docs/intro` | `/docs` 配下（起点と同じディレクトリのページを含む） |
+| `https://example.com/docs/` | `/docs` 配下 |
+| `https://example.com/docs` | `/docs` 配下 |
+| `https://example.com/`、`https://example.com/index.html` | ホスト全体 |
+
+範囲は次のオプションで変更できます。
+
+- `--include`：既定の範囲の代わりに、指定したパターンに一致する URL を範囲にします。
+- `--exclude`：範囲のうち、指定したパターンに一致する URL を除きます。
+- `--allow-all-paths`：ホスト全体を範囲にします。
+
+リダイレクトの結果として範囲の外に出たページは保存せず、終了時に一覧を表示します。
+
+### パターンの書き方
+
+`--include` と `--exclude` には、次の5種類のパターンを指定できます。
+
+| 書き方 | 例 | 一致する URL |
+| --- | --- | --- |
+| URL のグロブ | `https://example.com/docs/**` | `/docs` 自体とその配下すべて |
+| ホスト相対のグロブ（`/` で始まる） | `/docs/*` | 任意のホストの `/docs` 直下 |
+| 相対グロブ | `api/**`、`*.pdf` | パスの途中に `api/` というディレクトリを持つ URL、`.pdf` で終わる URL |
+| 部分文字列（`*` も `?` も含まない） | `changelog` | `changelog` を含む URL |
+| 正規表現（`^` で始まるか `$` で終わる） | `^https://example\.com/v\d+/` | 正規表現に一致する URL |
+
+グロブの `*` はパスの1階層の中だけに、`**` は複数の階層に一致します。末尾の `/**` はそのディレクトリ自体にも一致し、途中の `/**/` は階層が0個の場合にも一致します。
+
+## 出力の構成
+
+```text
+output/
+├── index.md              # ルートの目次
+├── overview.md           # 範囲の最上位の URL 自体のページ（配下にページがある場合）
+├── intro.md
+└── commands/
+    ├── index.md          # commands/ の目次
+    ├── overview.md       # /commands 自体のページ（配下にページがある場合）
+    └── create.md
+```
+
+- 全ページに共通するパスの接頭辞は取り除きます。`/docs/intro` と `/docs/commands/create` をクロールすると、`intro.md` と `commands/create.md` になります。
+- 配下にページを持つ URL は、そのディレクトリの `overview.md` になります（`/commands` と `/commands/create` があれば、前者は `commands/overview.md`）。`index.md` は生成する目次のために使います。
+- URL のパーセントエンコードはデコードします（`/docs/%E3%81%AF...` は `はじめに.md`）。ファイル名に使えない文字は `_` に置き換えます。
+- 出力先が重なる場合は、後から処理したページに `-2`、`-3` の連番を付けます。クエリ文字列だけが異なるページには、クエリのハッシュ値を付けます。
+- クロールしたページへのリンクは相対パスの `.md` に、それ以外の相対リンクと画像は絶対 URL に書き換えます。
+- 目次の並び順は、起点ページのサイドバーにあるリンクの順序に従います。サイドバーにないページはパスの順に並べます。
+
+## 失敗と除外の報告
+
+取得に失敗したページ（HTTP 400 番台・500 番台の応答を含む）は保存せず、終了時に URL と理由を標準エラー出力に表示します。Python API では `CrawlSummary.failed_pages` と `CrawlSummary.skipped_urls` で取得できます。失敗したページがあっても、1ページ以上を保存できれば終了コードは 0 です。
+
+## 注意と既知の制限
+
+- 既定では robots.txt を確認しません。公開サイトをクロールする場合は、サイトの利用規約を確認し、必要に応じて `--respect-robots` を指定してください。
+- `convert` は HTTP で取得した HTML をそのまま変換します。JavaScript で本文を描画するページは、ブラウザで描画してから取得する `crawl`（`--max-depth 0` で1ページだけ取得できます）を使ってください。
+- 起点 URL が別のホストやディレクトリへリダイレクトされる場合、範囲はリダイレクト前の URL から決まるため、起点ページしか取得できません。リダイレクト先の URL を起点に指定してください。
+- インライン SVG で描かれた図は出力されません。
+- 出力先に既にあるファイルは削除しません。前回のクロールで作られ、今回は作られなかったファイルは残ります。

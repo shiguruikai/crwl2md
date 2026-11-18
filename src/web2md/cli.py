@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
         "convert",
         help="Convert a single URL or local HTML file to Markdown.",
     )
-    convert_parser.add_argument("source", help="Source URL or local HTML file path.")
+    convert_parser.add_argument("source", help="Source URL, file:// URI, or local HTML file path.")
     convert_parser.add_argument("-o", "--output", type=Path, help="Output Markdown file path (default: stdout).")
     _add_frontmatter_options(convert_parser)
 
@@ -76,13 +76,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--include",
         action="append",
         default=[],
-        help="URL pattern to include (repeatable).",
+        help="URL pattern to crawl: glob or regex, repeatable. Replaces the default seed-directory scope.",
     )
     crawl_parser.add_argument(
         "--exclude",
         action="append",
         default=[],
-        help="URL pattern to exclude (repeatable).",
+        help="URL pattern to skip: glob or regex, repeatable.",
     )
     crawl_parser.add_argument(
         "--allow-all-paths",
