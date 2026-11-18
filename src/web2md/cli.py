@@ -2,15 +2,27 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 import httpx
 
+from web2md import __version__
 from web2md.crawler import CrawlConfig, convert_single, crawl_site
 from web2md.extractors import EXTRACTOR_METHODS
 from web2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
+
+
+def _int_at_least(minimum: int):
+    def parse(value: str) -> int:
+        number = int(value)
+        if number < minimum:
+            raise argparse.ArgumentTypeError(f"must be {minimum} or greater")
+        return number
+
+    return parse
 
 
 def _add_frontmatter_options(subparser: argparse.ArgumentParser) -> None:
@@ -32,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="web2md",
         description="Convert HTML pages or crawl documentation sites into Markdown with table of contents.",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     convert_parser = subparsers.add_parser(
@@ -60,8 +73,12 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Output directory for Markdown files and index.md.",
     )
-    crawl_parser.add_argument("--max-depth", type=int, default=2, help="Maximum crawl depth (default: 2).")
-    crawl_parser.add_argument("--max-pages", type=int, default=100, help="Maximum number of pages (default: 100).")
+    crawl_parser.add_argument(
+        "--max-depth", type=_int_at_least(0), default=2, metavar="N", help="Maximum crawl depth (default: 2)."
+    )
+    crawl_parser.add_argument(
+        "--max-pages", type=_int_at_least(1), default=100, metavar="N", help="Maximum number of pages (default: 100)."
+    )
     crawl_parser.add_argument(
         "--method",
         choices=EXTRACTOR_METHODS,
@@ -137,17 +154,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 f"Crawled {summary.page_count} pages and generated {summary.toc_count} index files in {summary.output_dir}"
             )
-            if summary.failed_urls:
-                print(f"Failed URLs ({len(summary.failed_urls)}):", file=sys.stderr)
-                for url in summary.failed_urls:
+            if summary.skipped_urls:
+                print(f"Skipped pages outside the crawl scope ({len(summary.skipped_urls)}):", file=sys.stderr)
+                for url in summary.skipped_urls:
                     print(f"  - {url}", file=sys.stderr)
+            if summary.failed_pages:
+                print(f"Failed pages ({len(summary.failed_pages)}):", file=sys.stderr)
+                for page in summary.failed_pages:
+                    print(f"  - {page.url}: {page.reason}", file=sys.stderr)
             return 0
 
         parser.error(f"Unknown command: {args.command}")
         return 2
     except KeyboardInterrupt:
         return 130
-    except (FileNotFoundError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+    except (OSError, ValueError, RuntimeError, re.error, httpx.HTTPError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 

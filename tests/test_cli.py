@@ -3,30 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from crawl4ai import CrawlResult
-from crawl4ai.models import CrawlResultContainer
 
-from web2md import CrawlConfig, crawl_site, crawl_site_sync
+import web2md
+from web2md import CrawlConfig, CrawlSummary, FailedPage
 from web2md.cli import main
-from web2md.crawler import build_filter_chain, compile_url_pattern
+
+_SAMPLE_HTML = "<html><head><title>Local</title></head><body><main><h1>Hello</h1><p>World</p></main></body></html>"
 
 
-class _FakeCrawler:
-    def __init__(self, results: list[CrawlResult] | list[CrawlResultContainer[CrawlResult]]) -> None:
-        self._results = results
-
-    async def arun(
-        self, url: str, config: object = None
-    ) -> list[CrawlResult] | list[CrawlResultContainer[CrawlResult]]:
-        return self._results
+def _write_sample_html(tmp_path: Path) -> Path:
+    html_file = tmp_path / "sample.html"
+    html_file.write_text(_SAMPLE_HTML, encoding="utf-8")
+    return html_file
 
 
 def test_cli_convert_local_file_to_output(tmp_path: Path):
-    html_file = tmp_path / "sample.html"
-    html_file.write_text(
-        "<html><head><title>Local</title></head><body><main><h1>Hello</h1><p>World</p></main></body></html>",
-        encoding="utf-8",
-    )
+    html_file = _write_sample_html(tmp_path)
     out_file = tmp_path / "out.md"
 
     exit_code = main(["convert", str(html_file), "-o", str(out_file), "--frontmatter"])
@@ -39,11 +31,7 @@ def test_cli_convert_local_file_to_output(tmp_path: Path):
 
 
 def test_cli_convert_local_file_with_frontmatter_fields(tmp_path: Path):
-    html_file = tmp_path / "sample.html"
-    html_file.write_text(
-        "<html><head><title>Local</title></head><body><main><h1>Hello</h1><p>World</p></main></body></html>",
-        encoding="utf-8",
-    )
+    html_file = _write_sample_html(tmp_path)
     out_file = tmp_path / "out.md"
 
     exit_code = main(["convert", str(html_file), "-o", str(out_file), "--frontmatter-fields", "title,timestamp"])
@@ -56,143 +44,84 @@ def test_cli_convert_local_file_with_frontmatter_fields(tmp_path: Path):
     assert "# Hello" in content
 
 
-def test_cli_convert_missing_file_returns_error(tmp_path: Path):
+def test_cli_convert_writes_utf8_markdown_to_stdout(tmp_path: Path, capfdbinary: pytest.CaptureFixture[bytes]):
+    html_file = tmp_path / "sample.html"
+    html_file.write_text("<html><body><main><h1>見出し</h1></main></body></html>", encoding="utf-8")
+
+    exit_code = main(["convert", str(html_file)])
+
+    assert exit_code == 0
+    assert capfdbinary.readouterr().out == "# 見出し\n".encode()
+
+
+def test_cli_convert_missing_file_returns_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     missing = tmp_path / "does_not_exist.html"
 
     exit_code = main(["convert", str(missing)])
 
     assert exit_code == 1
+    assert "HTML file not found" in capsys.readouterr().err
 
 
-@pytest.mark.asyncio
-async def test_crawl_site_writes_markdown_and_toc(tmp_path: Path):
-    seed_html = """
-    <html><head><title>SDK Overview</title></head><body>
-      <aside><nav>
-        <a href="/docs/sdk/start">Start</a>
-        <a href="/docs/sdk/api">API</a>
-      </nav></aside>
-      <main>
-        <h1>SDK Overview</h1>
-        <p>Overview paragraph.</p>
-        <p>Read <a href="/docs/sdk/start">Start</a> next.</p>
-      </main>
-    </body></html>
-    """
-    start_html = """
-    <html><head><title>Start</title></head><body>
-      <main>
-        <h1>Start</h1>
-        <p>Begin here and inspect <a href="../sdk/api#auth">API auth</a>.</p>
-      </main>
-    </body></html>
-    """
-    api_html = """
-    <html><head><title>API</title></head><body>
-      <main>
-        <h1>API</h1>
-        <h2 id="auth">Auth</h2>
-        <p>Authentication guide.</p>
-      </main>
-    </body></html>
-    """
+def test_cli_convert_reports_unwritable_output_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+    html_file = _write_sample_html(tmp_path)
 
-    fake_results = [
-        CrawlResult(url="https://example.com/docs/sdk", html=seed_html, success=True),
-        CrawlResult(
-            url="https://example.com/docs/sdk/",
-            redirected_url="https://example.com/docs/sdk",
-            html=seed_html,
-            success=True,
-        ),
-        CrawlResult(url="https://example.com/docs/sdk/start", html=start_html, success=True),
-        CrawlResult(url="https://example.com/docs/sdk/api", html=api_html, success=True),
-        CrawlResult(url="https://example.com/docs/sdk/broken", html="", success=False, error_message="404"),
-    ]
-    fake_crawler = _FakeCrawler(fake_results)
-    out_dir = tmp_path / "site_out"
-    config = CrawlConfig(
-        url="https://example.com/docs/sdk",
-        output_dir=out_dir,
-        max_depth=1,
-        frontmatter=True,
+    exit_code = main(["convert", str(html_file), "-o", str(tmp_path)])
+
+    assert exit_code == 1
+    assert capsys.readouterr().err.startswith("Error: ")
+
+
+def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    received: list[CrawlConfig] = []
+
+    async def fake_crawl_site(config: CrawlConfig) -> CrawlSummary:
+        received.append(config)
+        return CrawlSummary(
+            seed_url=config.url,
+            output_dir=config.output_dir,
+            page_count=2,
+            toc_count=1,
+            failed_pages=[FailedPage(url="https://example.com/docs/gone", status_code=404, reason="HTTP 404")],
+            skipped_urls=["https://example.com/login"],
+            files=["a.md", "index.md", "overview.md"],
+        )
+
+    monkeypatch.setattr("web2md.cli.crawl_site", fake_crawl_site)
+
+    exit_code = main(
+        ["crawl", "https://example.com/docs/", "-o", str(tmp_path), "--max-depth", "3", "--include", "/docs/**"]
     )
 
-    summary = await crawl_site(config, crawler=fake_crawler)
-
-    assert summary.page_count == 3
-    assert summary.toc_count == 1
-    assert summary.failed_urls == ["https://example.com/docs/sdk/broken"]
-    assert (out_dir / "index.md").is_file()
-    assert (out_dir / "overview.md").is_file()
-    assert (out_dir / "start.md").is_file()
-    assert (out_dir / "api.md").is_file()
-
-    overview_text = (out_dir / "overview.md").read_text(encoding="utf-8")
-    assert "[Start](start.md)" in overview_text
-    assert 'title: "SDK Overview"' in overview_text
-
-    start_text = (out_dir / "start.md").read_text(encoding="utf-8")
-    assert "[API auth](api.md#auth)" in start_text
-
-    toc_text = (out_dir / "index.md").read_text(encoding="utf-8")
-    assert toc_text.index("start.md") < toc_text.index("api.md")
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert (received[0].max_depth, received[0].include_patterns) == (3, ["/docs/**"])
+    assert "Crawled 2 pages and generated 1 index files" in captured.out
+    assert "  - https://example.com/docs/gone: HTTP 404" in captured.err
+    assert "  - https://example.com/login" in captured.err
 
 
-def test_compile_url_pattern_glob_double_star():
-    pattern = compile_url_pattern("https://docs.elgato.com/streamdeck/cli/**")
-    path_pattern = compile_url_pattern("/streamdeck/cli/**")
-    suffix_pattern = compile_url_pattern("*.pdf")
+def test_cli_crawl_reports_invalid_regex_pattern(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+    exit_code = main(["crawl", "https://example.com/docs/", "-o", str(tmp_path), "--include", "^("])
 
-    assert pattern.search("https://docs.elgato.com/streamdeck/cli")
-    assert pattern.search("https://docs.elgato.com/streamdeck/cli/")
-    assert pattern.search("https://docs.elgato.com/streamdeck/cli/intro")
-    assert pattern.search("https://docs.elgato.com/streamdeck/cli/commands/create")
-    assert not pattern.search("https://docs.elgato.com/streamdeck/sdk/intro")
-    assert not pattern.search("https://docs.elgato.com/streamdeck/cli-other/intro")
-
-    assert path_pattern.search("https://docs.elgato.com/streamdeck/cli/commands/create")
-    assert not path_pattern.search("https://docs.elgato.com/streamdeck/sdk/intro")
-
-    assert suffix_pattern.search("https://example.com/files/manual.pdf")
-    assert not suffix_pattern.search("https://example.com/files/manual.html")
+    assert exit_code == 1
+    assert capsys.readouterr().err.startswith("Error: ")
 
 
-@pytest.mark.asyncio
-async def test_build_filter_chain_uses_include_patterns(tmp_path: Path):
-    config = CrawlConfig(
-        url="https://docs.elgato.com/streamdeck/cli/commands/create",
-        output_dir=tmp_path / "out",
-        include_patterns=["https://docs.elgato.com/streamdeck/cli/**"],
-    )
+@pytest.mark.parametrize("option", [["--max-depth", "-1"], ["--max-pages", "0"]])
+def test_cli_crawl_rejects_out_of_range_limits(tmp_path: Path, option: list[str], capsys: pytest.CaptureFixture[str]):
+    with pytest.raises(SystemExit) as exc_info:
+        main(["crawl", "https://example.com/docs/", "-o", str(tmp_path), *option])
 
-    chain = build_filter_chain(config)
-
-    assert await chain.apply("https://docs.elgato.com/streamdeck/cli/intro")
-    assert await chain.apply("https://docs.elgato.com/streamdeck/cli/commands/pack")
-    assert not await chain.apply("https://docs.elgato.com/streamdeck/sdk/actions")
-    assert not await chain.apply("https://docs.elgato.com/streamdeck/cli/asset.js")
+    assert exc_info.value.code == 2
+    assert f"argument {option[0]}: must be" in capsys.readouterr().err
 
 
-def test_python_api_crawl_site_sync_with_direct_args(tmp_path: Path):
-    html = "<html><body><main><h1>Intro</h1><p>Welcome.</p></main></body></html>"
-    fake_crawler = _FakeCrawler(
-        [CrawlResultContainer(CrawlResult(url="https://docs.elgato.com/streamdeck/cli/intro", html=html, success=True))]
-    )
-    out_dir = tmp_path / "cli_out"
+def test_cli_version_prints_package_version(capsys: pytest.CaptureFixture[str]):
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--version"])
 
-    summary = crawl_site_sync(
-        "https://docs.elgato.com/streamdeck/cli/intro",
-        out_dir,
-        include_patterns=["https://docs.elgato.com/streamdeck/cli/**"],
-        frontmatter_fields=["title", "timestamp"],
-        crawler=fake_crawler,
-    )
-
-    assert summary.page_count == 1
-    assert (out_dir / "intro.md").is_file()
-    assert (out_dir / "index.md").is_file()
-    intro_text = (out_dir / "intro.md").read_text(encoding="utf-8")
-    assert 'title: "Intro"' in intro_text
-    assert "timestamp: " in intro_text
-    assert "description:" not in intro_text
+    assert exc_info.value.code == 0
+    assert capsys.readouterr().out.strip() == f"web2md {web2md.__version__}"
