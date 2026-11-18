@@ -325,7 +325,7 @@ async def test_crawl_site_checks_robots_txt_only_on_request(tmp_path: Path, resp
     assert fake_crawler.run_config.check_robots_txt is respect_robots
 
 
-def test_crawl_site_sync_with_direct_args(tmp_path: Path):
+def test_crawl_site_sync_runs_crawl_without_event_loop(tmp_path: Path):
     fake_crawler = _FakeCrawler(
         [
             CrawlResultContainer(
@@ -334,14 +334,14 @@ def test_crawl_site_sync_with_direct_args(tmp_path: Path):
         ]
     )
     out_dir = tmp_path / "cli_out"
-
-    summary = crawl_site_sync(
-        "https://docs.elgato.com/streamdeck/cli/intro",
-        out_dir,
+    config = CrawlConfig(
+        url="https://docs.elgato.com/streamdeck/cli/intro",
+        output_dir=out_dir,
         include_patterns=["https://docs.elgato.com/streamdeck/cli/**"],
         frontmatter_fields=["title", "timestamp"],
-        crawler=fake_crawler,
     )
+
+    summary = crawl_site_sync(config, crawler=fake_crawler)
 
     assert summary.page_count == 1
     assert (out_dir / "index.md").is_file()

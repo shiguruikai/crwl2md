@@ -117,14 +117,16 @@ Python API 例:
 ```python
 from pathlib import Path
 
-from web2md import convert_single, crawl_site_sync
+from web2md import CrawlConfig, convert_single, crawl_site_sync
 
 markdown = convert_single(Path("page.html"), frontmatter=True)
 
 summary = crawl_site_sync(
-    "https://docs.elgato.com/streamdeck/cli/intro",
-    "output/streamdeck-cli",
-    include_patterns=["https://docs.elgato.com/streamdeck/cli/**"],
+    CrawlConfig(
+        url="https://docs.elgato.com/streamdeck/cli/intro",
+        output_dir=Path("output/streamdeck-cli"),
+        include_patterns=["https://docs.elgato.com/streamdeck/cli/**"],
+    )
 )
 for page in summary.failed_pages:
     print(page.url, page.reason)

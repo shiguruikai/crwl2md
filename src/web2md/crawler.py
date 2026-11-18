@@ -355,69 +355,11 @@ def _write_files(output_dir: Path, files: Mapping[str, str]) -> None:
         dest.write_text(content, encoding="utf-8", newline="\n")
 
 
-def _resolve_crawl_config(
-    url_or_config: CrawlConfig | str,
-    output_dir: str | PathLike[str] | None = None,
-    *,
-    max_depth: int = 2,
-    max_pages: int = 100,
-    include_patterns: Sequence[str] = (),
-    exclude_patterns: Sequence[str] = (),
-    allow_all_paths: bool = False,
-    respect_robots: bool = False,
-    frontmatter: bool = False,
-    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
-    verbose: bool = False,
-) -> CrawlConfig:
-    if isinstance(url_or_config, CrawlConfig):
-        return url_or_config
-    if output_dir is None:
-        raise ValueError("output_dir is required when calling crawl_site with a URL string.")
-    resolved_fields = parse_frontmatter_fields(frontmatter_fields) if frontmatter_fields is not None else None
-    return CrawlConfig(
-        url=url_or_config,
-        output_dir=Path(output_dir),
-        max_depth=max_depth,
-        max_pages=max_pages,
-        include_patterns=list(include_patterns),
-        exclude_patterns=list(exclude_patterns),
-        allow_all_paths=allow_all_paths,
-        respect_robots=respect_robots,
-        frontmatter=frontmatter or resolved_fields is not None,
-        frontmatter_fields=resolved_fields,
-        verbose=verbose,
-    )
+async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> CrawlSummary:
+    """Crawl a documentation site and write link-rewritten Markdown files and `index.md` TOCs.
 
-
-async def crawl_site(
-    url_or_config: CrawlConfig | str,
-    output_dir: str | PathLike[str] | None = None,
-    *,
-    max_depth: int = 2,
-    max_pages: int = 100,
-    include_patterns: Sequence[str] = (),
-    exclude_patterns: Sequence[str] = (),
-    allow_all_paths: bool = False,
-    respect_robots: bool = False,
-    frontmatter: bool = False,
-    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
-    verbose: bool = False,
-    crawler: Any | None = None,
-) -> CrawlSummary:
-    """Crawl a documentation site and write link-rewritten Markdown files and `index.md` TOCs."""
-    config = _resolve_crawl_config(
-        url_or_config,
-        output_dir,
-        max_depth=max_depth,
-        max_pages=max_pages,
-        include_patterns=include_patterns,
-        exclude_patterns=exclude_patterns,
-        allow_all_paths=allow_all_paths,
-        respect_robots=respect_robots,
-        frontmatter=frontmatter,
-        frontmatter_fields=frontmatter_fields,
-        verbose=verbose,
-    )
+    `crawler` replaces the Crawl4AI browser crawler and exists for tests.
+    """
     filter_chain = build_filter_chain(config)
     run_config = CrawlerRunConfig(
         stream=False,
@@ -513,33 +455,6 @@ async def crawl_site(
     )
 
 
-def crawl_site_sync(
-    url_or_config: CrawlConfig | str,
-    output_dir: str | PathLike[str] | None = None,
-    *,
-    max_depth: int = 2,
-    max_pages: int = 100,
-    include_patterns: Sequence[str] = (),
-    exclude_patterns: Sequence[str] = (),
-    allow_all_paths: bool = False,
-    respect_robots: bool = False,
-    frontmatter: bool = False,
-    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
-    verbose: bool = False,
-    crawler: Any | None = None,
-) -> CrawlSummary:
-    """Synchronous wrapper around `crawl_site`."""
-    config = _resolve_crawl_config(
-        url_or_config,
-        output_dir,
-        max_depth=max_depth,
-        max_pages=max_pages,
-        include_patterns=include_patterns,
-        exclude_patterns=exclude_patterns,
-        allow_all_paths=allow_all_paths,
-        respect_robots=respect_robots,
-        frontmatter=frontmatter,
-        frontmatter_fields=frontmatter_fields,
-        verbose=verbose,
-    )
+def crawl_site_sync(config: CrawlConfig, *, crawler: Any | None = None) -> CrawlSummary:
+    """Synchronous wrapper around `crawl_site` for callers without a running event loop."""
     return asyncio.run(crawl_site(config, crawler=crawler))
