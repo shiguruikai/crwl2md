@@ -18,11 +18,14 @@ uv tool install git+https://github.com/shiguruikai/web2md.git
 # ローカルのリポジトリからインストールする場合（開発時は -e .）
 uv tool install .
 
-# 初回のみ：Playwright の Chromium ブラウザをインストール
-uv tool run --from web2md playwright install chromium
+# crawl が使うヘッドレスブラウザをダウンロード（約 290 MB）
+web2md setup
 ```
 
-`web2md` コマンドが見つからない場合は `uv tool update-shell` を実行し、シェルを再起動してください。
+- `web2md` コマンドが見つからない場合は `uv tool update-shell` を実行し、シェルを再起動してください。
+- `web2md setup` は、`crawl` を使う場合にだけ必要です。`convert` はブラウザなしで動きます。
+- `uv tool upgrade web2md` で更新したあとも `web2md setup` を実行してください。ブラウザは Playwright のバージョンごとに決まったビルドが必要で、ブラウザだけを更新することはできません。合っていない場合、`crawl` は `web2md setup` の実行を求めて終了します。
+- PyPI には、別の作者による同名のパッケージ `web2md` があります。`uv tool install web2md` や `uvx web2md` のように名前だけを指定すると、そちらがインストールされます。上記のとおり、リポジトリの URL またはパスを指定してください。
 
 ## アンインストール
 
@@ -43,18 +46,19 @@ task setup
 ### `web2md --help`
 
 ```text
-usage: web2md [-h] [--version] {convert,crawl} ...
+usage: web2md [-h] [--version] {convert,crawl,setup} ...
 
 Convert HTML pages or crawl documentation sites into Markdown with table of contents.
 
 positional arguments:
-  {convert,crawl}
-    convert        Convert a single URL or local HTML file to Markdown.
-    crawl          Crawl a documentation website and generate Markdown files with index.md TOCs.
+  {convert,crawl,setup}
+    convert             Convert a single URL or local HTML file to Markdown.
+    crawl               Crawl a documentation website and generate Markdown files with index.md TOCs.
+    setup               Download the headless browser that crawl needs (about 290 MB). Run once after installing or upgrading.
 
 options:
-  -h, --help       show this help message and exit
-  --version        show program's version number and exit
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
 ```
 
 ### `web2md convert --help`

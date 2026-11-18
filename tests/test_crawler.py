@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -8,8 +10,16 @@ import httpx
 import pytest
 from crawl4ai import CrawlResult
 from crawl4ai.models import CrawlResultContainer
+from playwright.async_api import Error as PlaywrightError
 
-from web2md import CrawlConfig, convert_single, crawl_site, crawl_site_sync
+from web2md import (
+    BrowserNotInstalledError,
+    CrawlConfig,
+    convert_single,
+    crawl_site,
+    crawl_site_sync,
+    install_browser,
+)
 from web2md.crawler import (
     _LinkFollowingBFSStrategy,
     _resolve_output_path,
@@ -365,6 +375,55 @@ async def test_crawl_site_hides_crawl4ai_banner_unless_user_set_the_variable(
     await crawl_site(config)
 
     assert os.environ["CRAWL4AI_NO_CLOUD_NOTICE"] == expected
+
+
+def _fail_browser_launch(monkeypatch: pytest.MonkeyPatch, message: str) -> None:
+    class UnlaunchableCrawler:
+        async def __aenter__(self) -> UnlaunchableCrawler:
+            raise PlaywrightError(message)
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            return None
+
+    monkeypatch.setattr("web2md.crawler.AsyncWebCrawler", lambda config: UnlaunchableCrawler())
+    monkeypatch.setenv("CRAWL4AI_NO_CLOUD_NOTICE", "1")
+
+
+async def test_crawl_site_explains_how_to_install_missing_browser(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _fail_browser_launch(monkeypatch, "BrowserType.launch: Executable doesn't exist at C:\\ms-playwright\\chrome.exe")
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
+
+    with pytest.raises(BrowserNotInstalledError, match="web2md setup"):
+        await crawl_site(config)
+
+
+async def test_crawl_site_propagates_other_browser_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _fail_browser_launch(monkeypatch, "BrowserType.launch: Target page, context or browser has been closed")
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
+
+    with pytest.raises(PlaywrightError, match="has been closed"):
+        await crawl_site(config)
+
+
+def test_install_browser_downloads_headless_shell_with_this_environments_playwright(monkeypatch: pytest.MonkeyPatch):
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    install_browser()
+
+    assert commands == [[sys.executable, "-m", "playwright", "install", "chromium", "--only-shell"]]
+
+
+def test_install_browser_reports_failed_download(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, returncode=1))
+
+    with pytest.raises(RuntimeError, match="Browser download failed"):
+        install_browser()
 
 
 async def test_crawl_site_passes_pacing_options_to_crawl4ai(tmp_path: Path):

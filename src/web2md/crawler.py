@@ -4,6 +4,8 @@ import asyncio
 import os
 import posixpath
 import re
+import subprocess
+import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -25,6 +27,7 @@ from crawl4ai import (
 )
 from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
 from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
+from playwright.async_api import Error as PlaywrightError
 from pydantic import BaseModel, Field
 
 from web2md.extractors import (
@@ -93,6 +96,19 @@ class CrawlSummary(BaseModel):
     # Crawling again with this URL as the seed covers the site.
     seed_redirected_to: str | None = None
     files: list[str]
+
+
+class BrowserNotInstalledError(RuntimeError):
+    """Raised when the headless browser that crawling needs has not been downloaded."""
+
+
+def install_browser() -> None:
+    """Download the headless Chromium build that the installed Playwright version requires."""
+    # Playwright pins one browser build per release, so the download must go through this environment's Playwright.
+    command = [sys.executable, "-m", "playwright", "install", "chromium", "--only-shell"]
+    result = subprocess.run(command, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"Browser download failed (playwright exited with code {result.returncode}).")
 
 
 def _resolve_local_path(source: str | PathLike[str]) -> Path:
@@ -396,8 +412,16 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
         # Crawl4AI prints a promotional banner unless told otherwise; an explicit user setting still wins.
         os.environ.setdefault("CRAWL4AI_NO_CLOUD_NOTICE", "1")
         browser_config = BrowserConfig(headless=True, verbose=config.verbose)
-        async with AsyncWebCrawler(config=browser_config) as active_crawler:
-            raw_results = await active_crawler.arun(config.url, config=run_config)
+        try:
+            async with AsyncWebCrawler(config=browser_config) as active_crawler:
+                raw_results = await active_crawler.arun(config.url, config=run_config)
+        except PlaywrightError as exc:
+            if "Executable doesn't exist" not in str(exc):
+                raise
+            raise BrowserNotInstalledError(
+                "The headless browser is not installed, or it does not match the installed Playwright version. "
+                "Run `web2md setup` (or call `web2md.install_browser()`) to download it."
+            ) from exc
 
     triaged = await _triage_results(_flatten_crawl_results(raw_results), config.url, filter_chain)
     if not triaged.pages:

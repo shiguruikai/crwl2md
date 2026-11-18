@@ -6,7 +6,7 @@ tasks:
     cmds:
       - mise install
       - uv sync --frozen --reinstall
-      - uv run playwright install chromium
+      - uv run web2md setup
 
   lint:
     desc: Run linters

@@ -23,6 +23,7 @@
 ## コマンド
 
 - 定型操作は [Taskfile.yml](Taskfile.yml) に集約しており、`task <TASK>`（`setup`, `format`, `lint`, `test`）で実行する。
+- `crawl` が使うヘッドレスブラウザは `uv run web2md setup` でダウンロードする（`task setup` に含まれる）。テストはブラウザを使わない。
 - 抽出結果と目次生成のベンチマークは [scripts/compare_methods.py](scripts/compare_methods.py) を `uv run python` で実行する。
 
 ## 構成
@@ -50,6 +51,7 @@
 | `arun` の戻り値は、`CrawlResult`、`CrawlResultContainer`、それらのリストのいずれかになる。 | `_flatten_crawl_results` で平坦化する。 |
 | `URLPatternFilter` は、`**` を含む文字列を `fnmatch` で解釈する（既存のコードコメントによる。0.9.5 では未検証）。 | `compile_url_pattern` で正規表現にしてから渡す。 |
 | 初回のクロール時とボット遮断の検出時に、宣伝のバナーを表示する。 | `crawl_site` がブラウザを起動する前に、環境変数 `CRAWL4AI_NO_CLOUD_NOTICE=1` を設定して抑止する（利用者が明示的に設定した値は上書きしない）。 |
+| Python 3.14 では、インストール後の初回実行時（バイトコードの生成時）に `SyntaxWarning: 'return' in a 'finally' block` を表示する。 | 対処していない。2回目以降は表示されない。 |
 
 ## 開発ルール
 

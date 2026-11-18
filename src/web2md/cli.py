@@ -8,9 +8,10 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import httpx
+from playwright.async_api import Error as PlaywrightError
 
 from web2md import __version__
-from web2md.crawler import CrawlConfig, convert_single, crawl_site, describe_crawl_scope
+from web2md.crawler import CrawlConfig, convert_single, crawl_site, describe_crawl_scope, install_browser
 from web2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
 
 
@@ -111,6 +112,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_frontmatter_options(crawl_parser)
     crawl_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose crawler logging.")
 
+    subparsers.add_parser(
+        "setup",
+        help="Download the headless browser that crawl needs (about 290 MB). Run once after installing or upgrading.",
+    )
+
     return parser
 
 
@@ -120,6 +126,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "setup":
+            install_browser()
+            print("The headless browser is ready.")
+            return 0
+
         frontmatter_fields = (
             parse_frontmatter_fields(args.frontmatter_fields) if args.frontmatter_fields is not None else None
         )
@@ -182,7 +193,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     except KeyboardInterrupt:
         return 130
-    except (OSError, ValueError, RuntimeError, re.error, httpx.HTTPError) as exc:
+    except (OSError, ValueError, RuntimeError, re.error, httpx.HTTPError, PlaywrightError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 

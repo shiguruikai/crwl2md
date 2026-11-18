@@ -134,6 +134,29 @@ def test_cli_crawl_rejects_out_of_range_limits(tmp_path: Path, option: list[str]
     assert f"argument {option[0]}: must be" in capsys.readouterr().err
 
 
+def test_cli_setup_downloads_browser(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    calls: list[str] = []
+    monkeypatch.setattr("web2md.cli.install_browser", lambda: calls.append("install"))
+
+    exit_code = main(["setup"])
+
+    assert exit_code == 0
+    assert calls == ["install"]
+    assert "ready" in capsys.readouterr().out
+
+
+def test_cli_setup_reports_failed_download(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    def fail() -> None:
+        raise RuntimeError("Browser download failed (playwright exited with code 1).")
+
+    monkeypatch.setattr("web2md.cli.install_browser", fail)
+
+    exit_code = main(["setup"])
+
+    assert exit_code == 1
+    assert capsys.readouterr().err == "Error: Browser download failed (playwright exited with code 1).\n"
+
+
 def test_cli_version_prints_package_version(capsys: pytest.CaptureFixture[str]):
     with pytest.raises(SystemExit) as exc_info:
         main(["--version"])
