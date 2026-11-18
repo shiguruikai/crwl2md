@@ -35,6 +35,22 @@
 - [src/web2md/cli.py](src/web2md/cli.py): `web2md` CLI エントリポイント
 - [docs/comparison.md](docs/comparison.md): 各変換手法・目次生成手法の検証結果
 
+## Crawl4AI 側の不具合・仕様と対処
+
+`crawl4ai` は 0.9 系に固定している（[pyproject.toml](pyproject.toml)）。次の表は、0.9.5 で確認した Crawl4AI 側の挙動と、web2md 側の対処である。上限を上げるときは、各項目の挙動が変わっていないかを実クロールで確認し、不要になった対処は削除する。
+
+| Crawl4AI の挙動 | web2md 側の対処 |
+| --- | --- |
+| `BFSDeepCrawlStrategy.can_process_url` が、ドットを含まないホスト（`localhost` など）の URL を不正として拒否する。 | `_LinkFollowingBFSStrategy` で判定を上書きしている。直っていればこのクラスは削除できる。 |
+| `DomainFilter` は、URL からポートを除いたホスト名を取り出して比較する。 | `allowed_domains` には `netloc` ではなく `hostname` を渡す。 |
+| HTTP 404 や 500 のページも `success=True` で返す。リダイレクトされたページの `status_code` は 302 のままになる。 | `_triage_results` で `status_code` が 400 以上の結果を失敗として扱う。 |
+| 約100バイト未満の HTML は、HTTP 200 でも「Near-empty content」としてボット遮断（`success=False`）と判定する。 | 対処していない。失敗の一覧に理由が表示される。 |
+| 429 を受け取ったページは、直後に1回だけ再試行される（`max_retries=1` の指定による）。待機はなく、`Retry-After` は無視される。内部の RateLimiter は以降のリクエスト間隔を延ばすだけで、拒否されたページを取り直さない。 | 対処していない。README で `--delay` と `--concurrency` による回避を案内している。 |
+| `mean_delay` の待機は、リクエストごとではなく、同時取得のまとまり（`semaphore_count` 件）ごとに入る。 | `--delay` のヘルプと README にその旨を書いている。 |
+| `arun` の戻り値は、`CrawlResult`、`CrawlResultContainer`、それらのリストのいずれかになる。 | `_flatten_crawl_results` で平坦化する。 |
+| `URLPatternFilter` は、`**` を含む文字列を `fnmatch` で解釈する（既存のコードコメントによる。0.9.5 では未検証）。 | `compile_url_pattern` で正規表現にしてから渡す。 |
+| 初回のクロール時とボット遮断の検出時に、宣伝のバナーを表示する。 | 対処していない。環境変数 `CRAWL4AI_NO_CLOUD_NOTICE=1` で抑止できる。 |
+
 ## 開発ルール
 
 - **ソースコメント**: コメントは英語で記述し、コードを見れば分かる自明なコメントは書かない。公開 API（公開クラス・公開関数）には簡潔な英語 docstring を記述する。
