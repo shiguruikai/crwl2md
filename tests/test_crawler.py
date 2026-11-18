@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -340,6 +341,30 @@ async def test_crawl_site_checks_robots_txt_only_on_request(tmp_path: Path, resp
     await crawl_site(config, crawler=fake_crawler)
 
     assert fake_crawler.run_config.check_robots_txt is respect_robots
+
+
+@pytest.mark.parametrize(("preset", "expected"), [(None, "1"), ("0", "0")])
+async def test_crawl_site_hides_crawl4ai_banner_unless_user_set_the_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preset: str | None, expected: str
+):
+    class FakeBrowserCrawler(_FakeCrawler):
+        async def __aenter__(self) -> FakeBrowserCrawler:
+            return self
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            return None
+
+    results = [CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)]
+    monkeypatch.setattr("web2md.crawler.AsyncWebCrawler", lambda config: FakeBrowserCrawler(results))
+    # setenv first so that monkeypatch restores the original state even though crawl_site sets the variable.
+    monkeypatch.setenv("CRAWL4AI_NO_CLOUD_NOTICE", preset or "")
+    if preset is None:
+        monkeypatch.delenv("CRAWL4AI_NO_CLOUD_NOTICE")
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
+
+    await crawl_site(config)
+
+    assert os.environ["CRAWL4AI_NO_CLOUD_NOTICE"] == expected
 
 
 async def test_crawl_site_passes_pacing_options_to_crawl4ai(tmp_path: Path):

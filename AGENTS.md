@@ -49,7 +49,7 @@
 | `mean_delay` の待機は、リクエストごとではなく、同時取得のまとまり（`semaphore_count` 件）ごとに入る。 | `--delay` のヘルプと README にその旨を書いている。 |
 | `arun` の戻り値は、`CrawlResult`、`CrawlResultContainer`、それらのリストのいずれかになる。 | `_flatten_crawl_results` で平坦化する。 |
 | `URLPatternFilter` は、`**` を含む文字列を `fnmatch` で解釈する（既存のコードコメントによる。0.9.5 では未検証）。 | `compile_url_pattern` で正規表現にしてから渡す。 |
-| 初回のクロール時とボット遮断の検出時に、宣伝のバナーを表示する。 | 対処していない。環境変数 `CRAWL4AI_NO_CLOUD_NOTICE=1` で抑止できる。 |
+| 初回のクロール時とボット遮断の検出時に、宣伝のバナーを表示する。 | `crawl_site` がブラウザを起動する前に、環境変数 `CRAWL4AI_NO_CLOUD_NOTICE=1` を設定して抑止する（利用者が明示的に設定した値は上書きしない）。 |
 
 ## 開発ルール
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import posixpath
 import re
 from collections.abc import Iterable, Mapping, Sequence
@@ -392,6 +393,8 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     if crawler is not None:
         raw_results = await crawler.arun(config.url, config=run_config)
     else:
+        # Crawl4AI prints a promotional banner unless told otherwise; an explicit user setting still wins.
+        os.environ.setdefault("CRAWL4AI_NO_CLOUD_NOTICE", "1")
         browser_config = BrowserConfig(headless=True, verbose=config.verbose)
         async with AsyncWebCrawler(config=browser_config) as active_crawler:
             raw_results = await active_crawler.arun(config.url, config=run_config)
