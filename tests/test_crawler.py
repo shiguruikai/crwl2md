@@ -21,10 +21,10 @@ from web2md.crawler import (
 class _FakeCrawler:
     def __init__(self, results: list[CrawlResult] | list[CrawlResultContainer[CrawlResult]]) -> None:
         self._results = results
+        self.run_config: Any = None
 
-    async def arun(
-        self, url: str, config: object = None
-    ) -> list[CrawlResult] | list[CrawlResultContainer[CrawlResult]]:
+    async def arun(self, url: str, config: Any = None) -> list[CrawlResult] | list[CrawlResultContainer[CrawlResult]]:
+        self.run_config = config
         return self._results
 
 
@@ -313,6 +313,16 @@ async def test_bfs_strategy_follows_links_on_hosts_without_a_dot(tmp_path: Path)
     not_http = await strategy.can_process_url("mailto:docs@example.com", 1)
 
     assert (in_scope, out_of_scope, not_http) == (True, False, False)
+
+
+@pytest.mark.parametrize("respect_robots", [False, True])
+async def test_crawl_site_checks_robots_txt_only_on_request(tmp_path: Path, respect_robots: bool):
+    fake_crawler = _FakeCrawler([CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)])
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", respect_robots=respect_robots)
+
+    await crawl_site(config, crawler=fake_crawler)
+
+    assert fake_crawler.run_config.check_robots_txt is respect_robots
 
 
 def test_crawl_site_sync_with_direct_args(tmp_path: Path):

@@ -92,12 +92,19 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
     monkeypatch.setattr("web2md.cli.crawl_site", fake_crawl_site)
 
     exit_code = main(
-        ["crawl", "https://example.com/docs/", "-o", str(tmp_path), "--max-depth", "3", "--include", "/docs/**"]
+        [
+            "crawl",
+            "https://example.com/docs/",
+            *("-o", str(tmp_path)),
+            *("--max-depth", "3"),
+            *("--include", "/docs/**"),
+            "--respect-robots",
+        ]
     )
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert (received[0].max_depth, received[0].include_patterns) == (3, ["/docs/**"])
+    assert (received[0].max_depth, received[0].include_patterns, received[0].respect_robots) == (3, ["/docs/**"], True)
     assert "Crawled 2 pages and generated 1 index files" in captured.out
     assert "Crawl scope: /docs/**" in captured.err
     assert "  - https://example.com/docs/gone: HTTP 404" in captured.err

@@ -60,6 +60,7 @@ class CrawlConfig(BaseModel):
     include_patterns: list[str] = Field(default_factory=list)
     exclude_patterns: list[str] = Field(default_factory=list)
     allow_all_paths: bool = False
+    respect_robots: bool = False
     frontmatter: bool = False
     frontmatter_fields: list[FrontmatterField] | None = None
     verbose: bool = False
@@ -360,6 +361,7 @@ def _resolve_crawl_config(
     include_patterns: Sequence[str] = (),
     exclude_patterns: Sequence[str] = (),
     allow_all_paths: bool = False,
+    respect_robots: bool = False,
     frontmatter: bool = False,
     frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
     verbose: bool = False,
@@ -377,6 +379,7 @@ def _resolve_crawl_config(
         include_patterns=list(include_patterns),
         exclude_patterns=list(exclude_patterns),
         allow_all_paths=allow_all_paths,
+        respect_robots=respect_robots,
         frontmatter=frontmatter or resolved_fields is not None,
         frontmatter_fields=resolved_fields,
         verbose=verbose,
@@ -392,6 +395,7 @@ async def crawl_site(
     include_patterns: Sequence[str] = (),
     exclude_patterns: Sequence[str] = (),
     allow_all_paths: bool = False,
+    respect_robots: bool = False,
     frontmatter: bool = False,
     frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
     verbose: bool = False,
@@ -406,6 +410,7 @@ async def crawl_site(
         include_patterns=include_patterns,
         exclude_patterns=exclude_patterns,
         allow_all_paths=allow_all_paths,
+        respect_robots=respect_robots,
         frontmatter=frontmatter,
         frontmatter_fields=frontmatter_fields,
         verbose=verbose,
@@ -421,6 +426,7 @@ async def crawl_site(
         ),
         scraping_strategy=LXMLWebScrapingStrategy(),
         max_retries=1,
+        check_robots_txt=config.respect_robots,
         verbose=config.verbose,
     )
 
@@ -513,6 +519,7 @@ def crawl_site_sync(
     include_patterns: Sequence[str] = (),
     exclude_patterns: Sequence[str] = (),
     allow_all_paths: bool = False,
+    respect_robots: bool = False,
     frontmatter: bool = False,
     frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
     verbose: bool = False,
@@ -527,6 +534,7 @@ def crawl_site_sync(
         include_patterns=include_patterns,
         exclude_patterns=exclude_patterns,
         allow_all_paths=allow_all_paths,
+        respect_robots=respect_robots,
         frontmatter=frontmatter,
         frontmatter_fields=frontmatter_fields,
         verbose=verbose,

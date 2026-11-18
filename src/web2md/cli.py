@@ -89,6 +89,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow crawling any path on the seed domain instead of restricting to the seed URL's directory.",
     )
+    crawl_parser.add_argument(
+        "--respect-robots",
+        action="store_true",
+        help="Skip pages that the site's robots.txt disallows.",
+    )
     _add_frontmatter_options(crawl_parser)
     crawl_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose crawler logging.")
 
@@ -131,6 +136,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 include_patterns=args.include,
                 exclude_patterns=args.exclude,
                 allow_all_paths=args.allow_all_paths,
+                respect_robots=args.respect_robots,
                 frontmatter=args.frontmatter or frontmatter_fields is not None,
                 frontmatter_fields=frontmatter_fields,
                 verbose=args.verbose,
