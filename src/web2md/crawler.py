@@ -6,6 +6,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from os import PathLike
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -86,8 +87,10 @@ class CrawlSummary(BaseModel):
     files: list[str]
 
 
-def _resolve_local_path(source: str) -> Path:
-    return Path.from_uri(source) if source.startswith("file://") else Path(source)
+def _resolve_local_path(source: str | PathLike[str]) -> Path:
+    if isinstance(source, str) and source.startswith("file://"):
+        return Path.from_uri(source)
+    return Path(source)
 
 
 def _decode_html(data: bytes, declared_encoding: str | None = None) -> str:
@@ -130,14 +133,14 @@ def _resolve_frontmatter_fields(
 
 
 def convert_single(
-    source: str,
+    source: str | PathLike[str],
     frontmatter: bool = False,
     frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
 ) -> str:
-    """Convert a single HTTP(S) URL or local HTML file into Markdown."""
+    """Convert a single HTTP(S) URL, `file://` URI, or local HTML file path into Markdown."""
     resolved_fields = _resolve_frontmatter_fields(frontmatter, frontmatter_fields)
 
-    if source.startswith(("http://", "https://")):
+    if isinstance(source, str) and source.startswith(("http://", "https://")):
         html, final_url = fetch_html(source)
     else:
         local_path = _resolve_local_path(source)

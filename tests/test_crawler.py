@@ -381,6 +381,15 @@ def test_convert_single_local_file_detects_non_utf8_encoding(tmp_path: Path):
     assert md == "# 日本語の見出し\n"
 
 
+def test_convert_single_accepts_path_object(tmp_path: Path):
+    html_file = tmp_path / "page.html"
+    html_file.write_text(_page("Local"), encoding="utf-8")
+
+    md = convert_single(html_file)
+
+    assert md.startswith("# Local\n")
+
+
 def test_convert_single_accepts_file_uri(tmp_path: Path):
     html_file = tmp_path / "my page.html"
     html_file.write_text(_page("Local"), encoding="utf-8")
