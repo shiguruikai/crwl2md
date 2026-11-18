@@ -325,3 +325,233 @@ def test_extract_page_metadata_preserves_snake_case_and_ignores_img_tags():
 
     assert meta.title == "Config"
     assert meta.description == "Use max_depth to configure crawling."
+
+
+def test_extract_markdown_keeps_empty_link_like_code_intact():
+    html = """
+    <html><body><main>
+      <h1>Sort</h1>
+      <pre><code class="language-cpp">std::sort(v.begin(), v.end(), [](int a, int b) { return a &lt; b; });</code></pre>
+      <p>Pass a lambda such as <code>[](int x)</code>.</p>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html, method="dom-markdownify")
+
+    assert "std::sort(v.begin(), v.end(), [](int a, int b) { return a < b; });" in md
+    assert "`[](int x)`" in md
+
+
+def test_extract_markdown_drops_icon_only_links():
+    html = """
+    <html><body><main>
+      <h1>Title</h1>
+      <p>See the source <a href="https://github.com/org/repo"><svg><path d="M0 0"/></svg></a> or
+      <a href="/logo"><img src="/logo.png" alt="Logo"></a>.</p>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html, url="https://docs.example.com/", method="dom-markdownify")
+
+    assert "github.com" not in md
+    assert '[<img src="https://docs.example.com/logo.png" alt="Logo">](/logo)' in md
+
+
+def test_extract_markdown_preserves_blank_lines_and_indentation_inside_code_blocks():
+    html = (
+        "<html><body><main><h1>Code</h1>"
+        '<pre><code class="language-python">def a():\n    pass\n\n\ndef b():\n    pass</code></pre>'
+        "</main></body></html>"
+    )
+
+    md = extract_markdown(html, method="dom-markdownify")
+
+    assert "```python\ndef a():\n    pass\n\n\ndef b():\n    pass\n```" in md
+
+
+def test_extract_markdown_collapses_blank_lines_in_prose():
+    html = "<html><body><main><h1>Title</h1><div><div><p>One</p></div></div><div><p>Two</p></div></main></body></html>"
+
+    md = extract_markdown(html, method="dom-markdownify")
+
+    assert md == "# Title\n\nOne\n\nTwo"
+
+
+def test_extract_markdown_keeps_line_breaks_as_backslash_breaks():
+    html = "<html><body><main><h1>Address</h1><p>Line one<br>Line two</p></main></body></html>"
+
+    md = extract_markdown(html, method="dom-markdownify")
+
+    assert "Line one\\\nLine two" in md
+
+
+def test_extract_markdown_joins_code_lines_wrapped_in_block_elements():
+    docusaurus_html = """
+    <html><body><main><h1>Run</h1>
+      <pre class="prism-code language-bash"><code><div class="token-line"><span>cd my-website</span><br></div><div class="token-line"><span>npm run start</span><br></div></code></pre>
+    </main></body></html>
+    """
+    expressive_code_html = """
+    <html><body><main><h1>Run</h1>
+      <pre data-language="js"><code><div class="ec-line"><div class="code"><span>const a = 1;</span></div></div><div class="ec-line"><div class="code"><span>const b = 2;</span></div></div></code></pre>
+    </main></body></html>
+    """
+
+    docusaurus_md = extract_markdown(docusaurus_html, method="dom-markdownify")
+    expressive_code_md = extract_markdown(expressive_code_html, method="dom-markdownify")
+
+    assert "```bash\ncd my-website\nnpm run start\n```" in docusaurus_md
+    assert "```js\nconst a = 1;\nconst b = 2;\n```" in expressive_code_md
+
+
+def test_extract_markdown_lengthens_fence_for_code_containing_backtick_fences():
+    html = (
+        "<html><body><main><h1>Docs</h1>"
+        '<pre><code class="language-markdown">```python\nprint(1)\n```</code></pre>'
+        "<p>After.</p></main></body></html>"
+    )
+
+    md = extract_markdown(html, method="dom-markdownify")
+
+    assert "````markdown\n```python\nprint(1)\n```\n````" in md
+    assert md.endswith("After.")
+
+
+def test_extract_markdown_keeps_every_tab_panel_with_its_label():
+    html = """
+    <html><body><main>
+      <h1>Install</h1>
+      <div class="tabs-container">
+        <ul role="tablist"><li role="tab" aria-selected="true">npm</li><li role="tab">Yarn</li></ul>
+        <div>
+          <div role="tabpanel"><pre><code class="language-bash">npm install foo</code></pre></div>
+          <div role="tabpanel" hidden=""><pre><code class="language-bash">yarn add foo</code></pre></div>
+        </div>
+      </div>
+      <p hidden>Hidden note</p>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html, method="dom-markdownify")
+
+    assert "**npm**\n\n```bash\nnpm install foo\n```" in md
+    assert "**Yarn**\n\n```bash\nyarn add foo\n```" in md
+    assert "- npm" not in md
+    assert "Hidden note" not in md
+
+
+def test_extract_markdown_converts_starlight_asides_to_blockquotes():
+    html = """
+    <html><body><main>
+      <h1>Guide</h1>
+      <aside aria-label="Caution" class="starlight-aside starlight-aside--caution">
+        <p class="starlight-aside__title" aria-hidden="true"><svg><path d="M0 0"/></svg>Caution</p>
+        <div class="starlight-aside__content"><p>Do not delete the lock file.</p></div>
+      </aside>
+      <aside class="right-sidebar"><p>On this page</p></aside>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html, method="dom-markdownify")
+
+    assert "> **Caution**\n>\n> Do not delete the lock file." in md
+    assert "On this page" not in md
+
+
+def test_extract_markdown_keeps_section_headers_and_drops_navigation_headers():
+    html = """
+    <html><body><main>
+      <header><nav><a href="/">Home</a></nav><h2>Site menu</h2></header>
+      <h1>Doc</h1>
+      <section><header><h2>Section title</h2><p>Lead text.</p></header><p>Body text.</p></section>
+      <header><p>Updated yesterday</p></header>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html, method="dom-markdownify")
+
+    assert "## Section title\n\nLead text.\n\nBody text." in md
+    assert "Site menu" not in md
+    assert "Updated yesterday" not in md
+
+
+def test_extract_markdown_detects_sphinx_code_language():
+    html = """
+    <html><body><div role="main">
+      <h1>API</h1>
+      <div class="highlight-python notranslate"><div class="highlight"><pre><span></span>import os</pre></div></div>
+      <div class="highlight-default notranslate"><div class="highlight"><pre>plain output</pre></div></div>
+    </div></body></html>
+    """
+
+    md = extract_markdown(html, method="dom-markdownify")
+
+    assert "```python\nimport os\n```" in md
+    assert "```\nplain output\n```" in md
+
+
+def test_extract_markdown_ignores_locale_class_on_code_block_ancestors():
+    html = '<html><body><main class="lang-ja"><h1>X</h1><pre><code>plain text</code></pre></main></body></html>'
+
+    md = extract_markdown(html, method="dom-markdownify")
+
+    assert "```\nplain text\n```" in md
+
+
+def test_extract_markdown_prefers_real_image_url_over_lazy_loading_placeholder():
+    html = """
+    <html><body><main>
+      <h1>Images</h1>
+      <p><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" data-src="/img/real.png" alt="Lazy"></p>
+      <p><img srcset="/img/small.png 1x, /img/large.png 2x" alt="Responsive"></p>
+      <p><img src="data:image/png;base64,iVBORw0KGgo=" alt="Inline"></p>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html, url="https://docs.example.com/guide", method="dom-markdownify")
+
+    assert '<img src="https://docs.example.com/img/real.png" alt="Lazy">' in md
+    assert '<img src="https://docs.example.com/img/small.png" alt="Responsive">' in md
+    assert '<img src="data:image/png;base64,iVBORw0KGgo=" alt="Inline">' in md
+
+
+def test_extract_markdown_crawl4ai_keeps_empty_link_like_code_intact():
+    raw_c4ai = "# Title\n\nIcon [](https://example.com/icon) and `[](int x)`.\n\n```cpp\nauto f = [](int x) { return x; };\n```"
+
+    md = extract_markdown("<html></html>", method="crawl4ai", crawl4ai_markdown=raw_c4ai)
+
+    assert "Icon  and `[](int x)`." in md
+    assert "auto f = [](int x) { return x; };" in md
+
+
+def test_extract_page_metadata_strips_markup_from_title():
+    md = '# Guide <img src="https://example.com/badge.svg" alt=""> `foo()` [link](/x) for snake\\_case\n\nBody.'
+
+    meta = extract_page_metadata("", md)
+
+    assert meta.title == "Guide foo() link for snake_case"
+
+
+def test_extract_page_metadata_uses_first_paragraph_starting_with_emphasis_or_dash():
+    bold_md = "# T\n\n- list item\n\n**Important:** read this first.\n\nSecond paragraph."
+    dash_md = "# T\n\n---\n\n--verbose enables logging.\n\nSecond paragraph."
+
+    bold_meta = extract_page_metadata("", bold_md)
+    dash_meta = extract_page_metadata("", dash_md)
+
+    assert bold_meta.description == "Important: read this first."
+    assert dash_meta.description == "--verbose enables logging."
+
+
+def test_extract_page_metadata_ignores_site_name_heading_outside_main_content():
+    html = """
+    <html><head><title>Real Page Title | Site</title></head><body>
+      <header><h1>Site Name</h1></header>
+      <main><h2>Section</h2><p>Body text.</p></main>
+    </body></html>
+    """
+    md = extract_markdown(html, method="dom-markdownify")
+
+    meta = extract_page_metadata(html, md)
+
+    assert meta.title == "Real Page Title"

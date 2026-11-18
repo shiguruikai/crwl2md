@@ -6,10 +6,12 @@ from typing import Any, Literal
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
-from bs4.element import NavigableString
+from bs4.element import Comment, NavigableString, PageElement
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from markdownify import MarkdownConverter
 from pydantic import BaseModel
+
+from web2md.markdown_code import iter_lines_with_code_flag, sub_outside_code_spans
 
 ExtractorType = Literal["dom-markdownify", "crawl4ai"]
 EXTRACTOR_METHODS: tuple[ExtractorType, ...] = ("dom-markdownify", "crawl4ai")
@@ -60,6 +62,7 @@ _UNWANTED_TAGS: tuple[str, ...] = (
 # - .example-header, [class*="language-"] > span.lang: Code block language badges that duplicate fence tags (MDN, VitePress).
 # - .hash-link, .headerlink, .header-anchor: Heading permalink icons (Docusaurus, MkDocs / Zensical, VitePress).
 # - .sr-only, .visually-hidden, [hidden]: Screen-reader-only utility text and hidden DOM nodes (VitePress, MDN, Zensical).
+#   Inactive tab panels are also `hidden` but hold real content, so they are kept and labeled by `_label_tab_panels`.
 _UNWANTED_SELECTORS: tuple[str, ...] = (
     ".breadcrumbs",
     '[aria-label*="breadcrumb" i]',
@@ -82,7 +85,7 @@ _UNWANTED_SELECTORS: tuple[str, ...] = (
     ".header-anchor",
     ".sr-only",
     ".visually-hidden",
-    "[hidden]",
+    '[hidden]:not([role="tabpanel"])',
 )
 
 # Ordered sidebar navigation selectors for TOC page ordering:
@@ -103,17 +106,30 @@ _SIDEBAR_SELECTORS: tuple[str, ...] = (
     "nav",
 )
 
-# Matches Prism/Shiki/Highlight.js `language-*` / `lang-*` and GitHub `highlight-source-*` class names.
-_CODE_LANG_CLASS_RE = re.compile(r"^(?:language|lang|highlight-source)-([a-zA-Z0-9_+-]+)$")
-# Strips empty Markdown links `[](...)` left by icon-only anchors while negative lookbehind preserves `![](...)` images.
+# Matches Prism/Shiki/Highlight.js `language-*`, GitHub `highlight-source-*`, and Sphinx `highlight-*` class names.
+_CODE_LANG_CLASS_RE = re.compile(r"^(?:language|highlight-source|highlight)-([a-zA-Z0-9_+-]+)$")
+# `lang-*` doubles as a UI-locale class on page wrappers (`lang-ja`), so it is honored only on <pre>/<code> themselves.
+_CODE_LANG_SHORT_CLASS_RE = re.compile(r"^lang-([a-zA-Z0-9_+-]+)$")
+# Sphinx emits `highlight-default` / `highlight-none` when no language is set.
+_NON_LANGUAGE_NAMES = frozenset({"default", "none"})
+# Strips empty Markdown links `[](...)` left by icon-only anchors in Crawl4AI output; the lookbehind preserves `![](...)`.
 _EMPTY_ANCHOR_RE = re.compile(r"(?<!!)\[\s*\]\([^)]+\)")
 # Matches empty or symbol-only heading permalink anchors (\u200b in Docusaurus/VitePress, #/¶ in Zensical, \uf0c1 in MkDocs).
 _HEADING_ANCHOR_TEXT_RE = re.compile(r"^[\u200b#\u00b6\uf0c1\s]*$")
-_MULTI_NEWLINE_RE = re.compile(r"\n{3,}")
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _HTML_IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
-# Strips inline Markdown formatting tokens and word-boundary `_` emphasis while preserving `snake_case` identifiers.
-_MD_FORMAT_RE = re.compile(r"[*`~]|(?<!\w)_|_(?!\w)")
+# Strips unescaped inline formatting tokens and word-boundary `_` emphasis while preserving `snake_case` identifiers.
+_MD_FORMAT_RE = re.compile(r"(?<!\\)[*`~]|(?<![\\\w])_|(?<!\\)_(?!\w)")
+# Matches the backslash escapes markdownify adds in front of literal punctuation.
+_MD_ESCAPE_RE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!<>|~])")
+_ATX_HEADING_RE = re.compile(r"^#{1,6}(?:\s|$)")
+_THEMATIC_BREAK_RE = re.compile(r"^(?:[-*_]\s*){3,}$")
+_ORDERED_LIST_ITEM_RE = re.compile(r"^\d+[.)]\s")
+_BACKTICK_FENCE_RUN_RE = re.compile(r"`{3,}")
+# Blank lines before the first code line of a <pre>; the first line's own indentation is kept.
+_PRE_LEADING_BLANK_RE = re.compile(r"^[ \n]*\n")
+_HEADING_TAGS: tuple[str, ...] = ("h1", "h2", "h3", "h4", "h5", "h6")
+_CODE_LINE_WRAPPER_TAGS = frozenset({"div", "p", "li"})
 
 
 class PageMetadata(BaseModel):
@@ -123,7 +139,7 @@ class PageMetadata(BaseModel):
     description: str
 
 
-def _extract_lang_from_attrs(tag: Tag | None) -> str:
+def _extract_lang_from_attrs(tag: Tag | None, *, is_code_element: bool) -> str:
     if tag is None:
         return ""
     for attr in ("data-language", "data-lang"):
@@ -134,7 +150,10 @@ def _extract_lang_from_attrs(tag: Tag | None) -> str:
     if isinstance(classes, list):
         str_classes = [cls for cls in classes if isinstance(cls, str)]
         for i, cls in enumerate(str_classes):
-            if match := _CODE_LANG_CLASS_RE.match(cls):
+            match = _CODE_LANG_CLASS_RE.match(cls) or (
+                _CODE_LANG_SHORT_CLASS_RE.match(cls) if is_code_element else None
+            )
+            if match and match.group(1) not in _NON_LANGUAGE_NAMES:
                 return match.group(1)
             # MDN SyntaxHighlighter emits `class="brush: js notranslate"`, tokenized as ["brush:", "js", ...].
             if cls == "brush:" and i + 1 < len(str_classes):
@@ -147,33 +166,58 @@ def _extract_lang_from_attrs(tag: Tag | None) -> str:
 def _detect_code_language(el: Tag) -> str:
     # Docusaurus and Shiki often place the language-* class on an outer wrapper up to 3 levels above <pre>.
     code = el.find("code")
-    candidates: list[Tag | None] = [code if isinstance(code, Tag) else None, el]
+    for code_element in (code if isinstance(code, Tag) else None, el):
+        if lang := _extract_lang_from_attrs(code_element, is_code_element=True):
+            return lang
     parent = el.parent
     for _ in range(3):
         if not isinstance(parent, Tag):
             break
-        candidates.append(parent)
-        parent = parent.parent
-    for candidate in candidates:
-        lang = _extract_lang_from_attrs(candidate)
-        if lang:
+        if lang := _extract_lang_from_attrs(parent, is_code_element=False):
             return lang
+        parent = parent.parent
     return ""
 
 
+def _new_bold_paragraph(soup: BeautifulSoup, text: str) -> Tag:
+    paragraph = soup.new_tag("p")
+    strong = soup.new_tag("strong")
+    strong.string = text
+    paragraph.append(strong)
+    return paragraph
+
+
+def _label_tab_panels(container: Tag, soup: BeautifulSoup) -> None:
+    # ARIA tab widgets (Docusaurus <Tabs>, Starlight <Tabs>) render every panel but hide the inactive ones.
+    # Keep all panels and move each tab label in front of its panel so the variants stay distinguishable.
+    for tablist in list(container.select('[role="tablist"]')):
+        tabs = tablist.select('[role="tab"]')
+        widget = next(
+            (parent for parent in tablist.parents if parent.select_one('[role="tabpanel"]') is not None), None
+        )
+        panels = widget.select('[role="tabpanel"]') if widget is not None else []
+        # Nested or lazily rendered widgets do not pair up one-to-one; leave those untouched.
+        if not tabs or len(tabs) != len(panels):
+            continue
+        for tab, panel in zip(tabs, panels, strict=True):
+            panel.insert(0, _new_bold_paragraph(soup, re.sub(r"\s+", " ", tab.get_text()).strip()))
+        tablist.decompose()
+
+
 def _strip_unwanted_dom_elements(container: Tag) -> None:
+    # Headers are judged before <nav> removal so that navigation banners are still recognizable.
+    for header in list(container.find_all("header")):
+        # Preserve title headers (<header><h1>...</h1></header>, <section><header><h2>...) while dropping banners.
+        if header.get("role") == "banner" or header.find("nav") is not None or header.find(_HEADING_TAGS) is None:
+            header.decompose()
+
     for el in container.find_all(list(_UNWANTED_TAGS)):
         el.decompose()
 
     for el in container.select(", ".join(_UNWANTED_SELECTORS)):
         el.decompose()
 
-    for header in list(container.find_all("header")):
-        # Preserve article title headers (<header><h1>...</h1></header>) while dropping banner headers.
-        if header.get("role") == "banner" or header.find("nav") is not None or header.find("h1") is None:
-            header.decompose()
-
-    for heading in container.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+    for heading in container.find_all(_HEADING_TAGS):
         for anchor in list(heading.find_all("a")):
             if _HEADING_ANCHOR_TEXT_RE.match(anchor.get_text()):
                 anchor.decompose()
@@ -181,27 +225,38 @@ def _strip_unwanted_dom_elements(container: Tag) -> None:
                 # MDN wraps heading text in `<a class="heading-anchor" href="#...">Title</a>`; unwrap self-links.
                 anchor.unwrap()
 
+    # Icon-only anchors lose their content above and would otherwise render as empty `[](...)` links.
+    for anchor in list(container.find_all("a")):
+        if (
+            anchor.find_parent("pre") is None
+            and anchor.find("img") is None
+            and not anchor.get_text().strip("\u200b \t\r\n")
+        ):
+            anchor.decompose()
+
 
 def _normalize_admonitions(container: Tag, soup: BeautifulSoup) -> None:
-    for admonition in list(container.select(".theme-admonition, .admonition, .custom-block, .notecard")):
+    # Covers Docusaurus, MkDocs / Sphinx, VitePress, MDN, and Starlight (which marks callouts up as <aside>).
+    for admonition in list(
+        container.select(".theme-admonition, .admonition, .custom-block, .notecard, .starlight-aside")
+    ):
         if admonition.find_parent("blockquote") is not None:
             continue
 
         heading = admonition.select_one(
-            '[class*="admonitionHeading" i], .admonition-heading, .admonition-title, .custom-block-title'
+            '[class*="admonitionHeading" i], .admonition-heading, .admonition-title, .custom-block-title, '
+            ".starlight-aside__title"
         )
         if heading is not None:
             heading_text = re.sub(r"\s+", " ", heading.get_text()).strip()
             if heading_text:
-                p_tag = soup.new_tag("p")
-                strong_tag = soup.new_tag("strong")
-                strong_tag.string = heading_text
-                p_tag.append(strong_tag)
-                heading.replace_with(p_tag)
+                heading.replace_with(_new_bold_paragraph(soup, heading_text))
             else:
                 heading.decompose()
 
-        for content in list(admonition.select('[class*="admonitionContent" i], .admonition-content')):
+        for content in list(
+            admonition.select('[class*="admonitionContent" i], .admonition-content, .starlight-aside__content')
+        ):
             content.unwrap()
 
         admonition.name = "blockquote"
@@ -231,14 +286,51 @@ def _strip_leading_nav_lines(lines: list[str]) -> list[str]:
     return lines[first_h1_idx:] if is_nav_preamble else lines
 
 
+def _pick_image_src(el: Tag) -> str:
+    srcset = el.get("srcset") or el.get("data-srcset")
+    first_srcset_url = srcset.split(",")[0].split()[0] if isinstance(srcset, str) and srcset.strip() else None
+    candidates = [
+        value.strip()
+        for value in (el.get("src"), el.get("data-src"), el.get("data-lazy-src"), first_srcset_url)
+        if isinstance(value, str) and value.strip()
+    ]
+    # Lazy-loading scripts park a `data:` placeholder in `src` and keep the real URL in another attribute.
+    return next((src for src in candidates if not src.startswith("data:")), candidates[0] if candidates else "")
+
+
+def _code_text(node: PageElement) -> str:
+    # Rebuild <pre> text the way a browser lays it out: <br> and block-level line wrappers
+    # (Docusaurus `div.token-line`, Expressive Code `div.ec-line`) each end a line exactly once.
+    if isinstance(node, Comment):
+        return ""
+    if isinstance(node, NavigableString):
+        return str(node)
+    if not isinstance(node, Tag):
+        return ""
+    if node.name == "br":
+        return "\n"
+    text = "".join(_code_text(child) for child in node.children)
+    if node.name in _CODE_LINE_WRAPPER_TAGS and text and not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
 class _DomMarkdownConverter(MarkdownConverter):
     def __init__(self, *, base_url: str = "", **options: Any) -> None:
         super().__init__(**options)
         self._base_url = base_url if base_url.startswith(("http://", "https://")) else ""
 
+    def convert_pre(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        code = _PRE_LEADING_BLANK_RE.sub("", _code_text(el)).rstrip(" \n")
+        if not code:
+            return ""
+        # Code that itself contains ``` needs a longer fence, otherwise the block would end early.
+        longest_run = max((len(run) for run in _BACKTICK_FENCE_RUN_RE.findall(code)), default=2)
+        fence = "`" * (longest_run + 1)
+        return f"\n\n{fence}{_detect_code_language(el)}\n{code}\n{fence}\n\n"
+
     def convert_img(self, el: Tag, text: str, parent_tags: set[str]) -> str:
-        raw_src = el.get("src") or el.get("data-src")
-        src = raw_src.strip() if isinstance(raw_src, str) else ""
+        src = _pick_image_src(el)
         if not src:
             return ""
         if self._base_url and not src.startswith(("http://", "https://", "data:")):
@@ -254,26 +346,44 @@ class _DomMarkdownConverter(MarkdownConverter):
         return f"<img {' '.join(attrs)}>"
 
 
-def _postprocess_markdown(markdown: str, *, strip_leading_nav: bool = False) -> str:
+def _postprocess_markdown(markdown: str, *, clean_crawl4ai_noise: bool = False) -> str:
     text = markdown.replace("\r\n", "\n").replace("\r", "\n").replace("\u200b", "")
-    text = _EMPTY_ANCHOR_RE.sub("", text)
 
-    lines = _strip_leading_nav_lines(text.split("\n")) if strip_leading_nav else text.split("\n")
-    cleaned_lines = [line.rstrip() for line in lines]
-    return _MULTI_NEWLINE_RE.sub("\n\n", "\n".join(cleaned_lines)).strip()
+    # Whitespace cleanup applies to prose only; code blocks must come through unchanged.
+    lines: list[str] = []
+    for line, in_code_block in iter_lines_with_code_flag(text):
+        if in_code_block:
+            lines.append(line)
+            continue
+        if clean_crawl4ai_noise:
+            line = sub_outside_code_spans(_EMPTY_ANCHOR_RE, lambda _: "", line)
+        line = line.rstrip()
+        if line or not lines or lines[-1]:
+            lines.append(line)
+
+    if clean_crawl4ai_noise:
+        lines = _strip_leading_nav_lines(lines)
+    return "\n".join(lines).strip()
+
+
+def _select_main_container(soup: BeautifulSoup) -> Tag:
+    return next((el for selector in _MAIN_SELECTORS if (el := soup.select_one(selector)) is not None), soup)
 
 
 def _extract_with_dom_markdownify(html: str, url: str = "") -> str:
     soup = BeautifulSoup(html, "lxml")
-    target = next((el for selector in _MAIN_SELECTORS if (el := soup.select_one(selector)) is not None), soup)
-    _strip_unwanted_dom_elements(target)
+    target = _select_main_container(soup)
+    # Tab labels and <aside> callouts must be rewritten before the generic <button>/<aside> removal.
+    _label_tab_panels(target, soup)
     _normalize_admonitions(target, soup)
+    _strip_unwanted_dom_elements(target)
     _normalize_anchor_newlines(target)
     converter = _DomMarkdownConverter(
         base_url=url,
         heading_style="ATX",
         bullets="-",
-        code_language_callback=_detect_code_language,
+        # Trailing-space line breaks would be lost to whitespace cleanup, so <br> becomes a backslash break.
+        newline_style="BACKSLASH",
     )
     raw_markdown = converter.convert(str(target))
     return _postprocess_markdown(raw_markdown)
@@ -281,7 +391,7 @@ def _extract_with_dom_markdownify(html: str, url: str = "") -> str:
 
 def _extract_with_crawl4ai(html: str, url: str, crawl4ai_markdown: str | None) -> str:
     if crawl4ai_markdown and crawl4ai_markdown.strip():
-        return _postprocess_markdown(crawl4ai_markdown, strip_leading_nav=True)
+        return _postprocess_markdown(crawl4ai_markdown, clean_crawl4ai_noise=True)
 
     target_html = html
     if html.strip():
@@ -290,7 +400,7 @@ def _extract_with_crawl4ai(html: str, url: str, crawl4ai_markdown: str | None) -
             target_html = str(main_el)
 
     result = DefaultMarkdownGenerator().generate_markdown(input_html=target_html, base_url=url, citations=False)
-    return _postprocess_markdown(result.raw_markdown, strip_leading_nav=True)
+    return _postprocess_markdown(result.raw_markdown, clean_crawl4ai_noise=True)
 
 
 def extract_markdown(
@@ -309,48 +419,41 @@ def extract_markdown(
     raise ValueError(f"Unsupported extractor method: {method}")
 
 
+def _to_plain_text(inline_markdown: str) -> str:
+    text = _HTML_IMG_TAG_RE.sub("", inline_markdown)
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _MD_FORMAT_RE.sub("", text)
+    text = _MD_ESCAPE_RE.sub(r"\1", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _extract_first_h1_from_markdown(markdown: str) -> str:
-    in_code_block = False
-    for line in markdown.splitlines():
+    for line, in_code_block in iter_lines_with_code_flag(markdown):
         stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
-            in_code_block = not in_code_block
-            continue
         if not in_code_block and stripped.startswith("# "):
-            return stripped[2:].strip()
+            return _to_plain_text(stripped[2:])
     return ""
 
 
+def _is_paragraph_line(stripped: str) -> bool:
+    return not (
+        not stripped
+        or stripped.startswith(("- ", "* ", "+ ", ">", "|", "![", "<img"))
+        or _ATX_HEADING_RE.match(stripped)
+        or _THEMATIC_BREAK_RE.match(stripped)
+        or _ORDERED_LIST_ITEM_RE.match(stripped)
+    )
+
+
 def _extract_first_paragraph(markdown: str) -> str:
-    in_code_block = False
     paragraph_lines: list[str] = []
-
-    for line in markdown.splitlines():
+    for line, in_code_block in iter_lines_with_code_flag(markdown):
         stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
-            in_code_block = not in_code_block
-            if paragraph_lines:
-                break
-            continue
-        if in_code_block:
-            continue
-        if (
-            not stripped
-            or stripped.startswith(("#", "-", "*", ">", "|", "![", "<img", "---"))
-            or re.match(r"^\d+\.\s+", stripped)
-        ):
-            if paragraph_lines:
-                break
-            continue
-        paragraph_lines.append(stripped)
-
-    if not paragraph_lines:
-        return ""
-
-    joined = _HTML_IMG_TAG_RE.sub("", " ".join(paragraph_lines))
-    joined = _MD_LINK_RE.sub(r"\1", joined)
-    joined = _MD_FORMAT_RE.sub("", joined)
-    return re.sub(r"\s+", " ", joined).strip()
+        if not in_code_block and _is_paragraph_line(stripped):
+            paragraph_lines.append(stripped)
+        elif paragraph_lines:
+            break
+    return _to_plain_text(" ".join(paragraph_lines))
 
 
 def _truncate_text(text: str, max_length: int = 150) -> str:
@@ -365,7 +468,8 @@ def extract_page_metadata(html: str, markdown: str, fallback_title: str = "") ->
     soup = BeautifulSoup(html, "lxml") if html.strip() else BeautifulSoup("", "lxml")
 
     title = _extract_first_h1_from_markdown(markdown)
-    if not title and (h1 := soup.find("h1")) is not None:
+    # Look for <h1> in the content area only; a site-name <h1> in the page header would title every page alike.
+    if not title and (h1 := _select_main_container(soup).find("h1")) is not None:
         for anchor in list(h1.find_all("a")):
             if _HEADING_ANCHOR_TEXT_RE.match(anchor.get_text()):
                 anchor.decompose()
