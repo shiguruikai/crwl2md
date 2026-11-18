@@ -162,6 +162,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 f"Crawled {summary.page_count} pages and generated {summary.toc_count} index files in {summary.output_dir}"
             )
+            if summary.seed_redirected_to:
+                print(
+                    f"Warning: the seed URL was redirected to {summary.seed_redirected_to}, outside the crawl scope, "
+                    "so links on that page were not followed. Run the crawl again with that URL as the seed.",
+                    file=sys.stderr,
+                )
             if summary.skipped_urls:
                 print(f"Skipped pages outside the crawl scope ({len(summary.skipped_urls)}):", file=sys.stderr)
                 for url in summary.skipped_urls:

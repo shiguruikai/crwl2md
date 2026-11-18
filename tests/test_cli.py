@@ -86,6 +86,7 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
             toc_count=1,
             failed_pages=[FailedPage(url="https://example.com/docs/gone", status_code=404, reason="HTTP 404")],
             skipped_urls=["https://example.com/login"],
+            seed_redirected_to="https://www.example.com/docs/",
             files=["a.md", "index.md", "overview.md"],
         )
 
@@ -112,6 +113,7 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
     assert "Crawl scope: /docs/**" in captured.err
     assert "  - https://example.com/docs/gone: HTTP 404" in captured.err
     assert "  - https://example.com/login" in captured.err
+    assert "Warning: the seed URL was redirected to https://www.example.com/docs/" in captured.err
 
 
 def test_cli_crawl_reports_invalid_regex_pattern(tmp_path: Path, capsys: pytest.CaptureFixture[str]):

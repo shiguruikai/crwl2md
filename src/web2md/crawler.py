@@ -88,6 +88,9 @@ class CrawlSummary(BaseModel):
     toc_count: int
     failed_pages: list[FailedPage]
     skipped_urls: list[str]
+    # Set when the seed was redirected outside the crawl scope, which leaves its links unfollowed.
+    # Crawling again with this URL as the seed covers the site.
+    seed_redirected_to: str | None = None
     files: list[str]
 
 
@@ -308,6 +311,7 @@ class _TriagedResults:
     redirects: dict[str, str] = field(default_factory=dict)
     failed: list[FailedPage] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    seed_redirected_to: str | None = None
 
 
 def _final_url(result: CrawlResult) -> str:
@@ -329,8 +333,12 @@ async def _triage_results(results: Iterable[CrawlResult], seed_url: str, filter_
             continue
 
         # Filters only saw the requested URL; redirects and ".." links can still end up outside the crawl scope.
-        is_seed = normalize_url_key(res.url) == seed_key
-        if not is_seed and not await filter_chain.apply(final_url):
+        in_scope = await filter_chain.apply(final_url)
+        if normalize_url_key(res.url) == seed_key:
+            # The seed page is always kept, but its links were filtered against the scope of the original URL.
+            if not in_scope and normalize_url_key(final_url) != seed_key:
+                triaged.seed_redirected_to = final_url
+        elif not in_scope:
             triaged.skipped.append(final_url)
             continue
 
@@ -457,6 +465,7 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
         toc_count=len(toc_files),
         failed_pages=triaged.failed,
         skipped_urls=triaged.skipped,
+        seed_redirected_to=triaged.seed_redirected_to,
         files=sorted(files),
     )
 

@@ -148,6 +148,23 @@ async def test_crawl_site_keeps_seed_page_redirected_to_another_host(tmp_path: P
 
     assert summary.page_count == 1
     assert summary.skipped_urls == []
+    assert summary.seed_redirected_to == "https://www.example.com/docs/"
+
+
+async def test_crawl_site_does_not_flag_seed_redirected_within_scope(tmp_path: Path):
+    fake_results = [
+        CrawlResult(
+            url="https://example.com/docs",
+            redirected_url="https://example.com/docs/latest/",
+            html=_page("Docs"),
+            success=True,
+        ),
+    ]
+    config = CrawlConfig(url="https://example.com/docs", output_dir=tmp_path / "out")
+
+    summary = await crawl_site(config, crawler=_FakeCrawler(fake_results))
+
+    assert summary.seed_redirected_to is None
 
 
 async def test_crawl_site_localizes_links_to_pre_redirect_urls(tmp_path: Path):
