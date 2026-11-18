@@ -13,6 +13,8 @@ from urllib.parse import urljoin, urlparse
 
 from pydantic import BaseModel
 
+from web2md.markdown_code import iter_lines_with_code_flag, sub_outside_code_spans
+
 FrontmatterField = Literal["title", "description", "source", "timestamp"]
 FRONTMATTER_FIELDS: tuple[FrontmatterField, ...] = ("title", "description", "source", "timestamp")
 _FRONTMATTER_FIELD_SET = frozenset(FRONTMATTER_FIELDS)
@@ -33,18 +35,19 @@ class CrawledPageDoc(BaseModel):
 
 
 def normalize_url_key(url: str) -> str:
-    """Normalize a URL by stripping fragments, default index filenames, and trailing slashes."""
+    """Normalize a URL by resolving dot segments and stripping fragments, index filenames, and trailing slashes."""
     parsed = urlparse(url.strip())
-    path = re.sub(r"/+", "/", parsed.path or "/")
+    # normpath resolves "." / ".." the way browsers do, so "/docs/x/../../etc" can never escape the output root.
+    path = posixpath.normpath(re.sub(r"/+", "/", parsed.path or "/"))
     if path.endswith(("/index.html", "/index.htm")):
-        path = path.rsplit("/", 1)[0] + "/"
-    path = path.rstrip("/") or "/"
+        path = posixpath.dirname(path)
     query = f"?{parsed.query}" if parsed.query else ""
     return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}{query}"
 
 
 def _sanitize_segment(segment: str) -> str:
-    return _UNSAFE_SEGMENT_RE.sub("_", segment).strip() or "page"
+    # Trailing dots and spaces are dropped because Windows silently removes them; this also neutralizes "." and "..".
+    return _UNSAFE_SEGMENT_RE.sub("_", segment).strip().rstrip(". ") or "page"
 
 
 def _strip_doc_extension(name: str) -> str:
@@ -56,15 +59,14 @@ def _strip_doc_extension(name: str) -> str:
 
 
 def _allocate_unique_path(candidate: str, used: set[str]) -> str:
-    if candidate not in used:
-        used.add(candidate)
-        return candidate
-    stem = candidate[:-3] if candidate.endswith(".md") else candidate
-    suffix = 2
-    while f"{stem}-{suffix}.md" in used:
+    # `used` holds case-folded paths because Windows and macOS treat `API.md` and `api.md` as the same file.
+    stem = candidate.removesuffix(".md")
+    unique = candidate
+    suffix = 1
+    while unique.casefold() in used:
         suffix += 1
-    unique = f"{stem}-{suffix}.md"
-    used.add(unique)
+        unique = f"{stem}-{suffix}.md"
+    used.add(unique.casefold())
     return unique
 
 
@@ -90,17 +92,16 @@ def compute_relative_paths(urls: Sequence[str], seed_url: str) -> dict[str, str]
     segs_by_key = {key: [seg for seg in parsed_by_key[key].path.strip("/").split("/") if seg] for key in unique_keys}
 
     # URLs that have descendant pages become directory overviews (overview.md) to avoid colliding with generated index.md.
-    dir_parent_keys: set[str] = set()
-    for key in unique_keys:
-        segs = segs_by_key[key]
-        if not segs or any(
-            other != key
-            and parsed_by_key[key].netloc == parsed_by_key[other].netloc
-            and len(segs_by_key[other]) > len(segs)
-            and segs_by_key[other][: len(segs)] == segs
-            for other in unique_keys
-        ):
-            dir_parent_keys.add(key)
+    ancestor_dirs = {
+        (parsed_by_key[key].netloc, *segs_by_key[key][:depth])
+        for key in unique_keys
+        for depth in range(len(segs_by_key[key]))
+    }
+    dir_parent_keys = {
+        key
+        for key in unique_keys
+        if not segs_by_key[key] or (parsed_by_key[key].netloc, *segs_by_key[key]) in ancestor_dirs
+    }
 
     common_prefix: list[str] = []
     if not multi_host:
@@ -138,22 +139,30 @@ def compute_relative_paths(urls: Sequence[str], seed_url: str) -> dict[str, str]
     return result
 
 
+def _without_doc_extension(url_key: str) -> str:
+    parsed = urlparse(url_key)
+    return parsed._replace(path=_strip_doc_extension(parsed.path)).geturl()
+
+
+def build_link_lookup(url_to_relpath: Mapping[str, str]) -> dict[str, str]:
+    """Index page URLs by normalized key so that `rewrite_markdown_links` can resolve links to local `.md` paths."""
+    lookup = {normalize_url_key(url): relpath for url, relpath in url_to_relpath.items()}
+    # `/guide.html` and `/guide` usually name the same page; exact keys registered above keep priority.
+    for key, relpath in list(lookup.items()):
+        lookup.setdefault(_without_doc_extension(key), relpath)
+    return lookup
+
+
 def rewrite_markdown_links(
     markdown: str,
     source_url: str,
     source_relpath: str,
-    url_to_relpath: Mapping[str, str],
+    link_lookup: Mapping[str, str],
 ) -> str:
-    """Rewrite internal links to relative `.md` paths and resolve uncrawled relative links to absolute URLs."""
-    lookup: dict[str, str] = {}
-    for url, relpath in url_to_relpath.items():
-        key = normalize_url_key(url)
-        lookup[key] = relpath
-        parsed = urlparse(key)
-        stripped_path = _strip_doc_extension(parsed.path)
-        if stripped_path != parsed.path:
-            lookup.setdefault(parsed._replace(path=stripped_path).geturl(), relpath)
+    """Rewrite links to crawled pages into relative `.md` paths and other relative links into absolute URLs.
 
+    `link_lookup` comes from `build_link_lookup`; pass an empty mapping to only absolutize relative links.
+    """
     source_dir = posixpath.dirname(source_relpath) or "."
     has_http_source = source_url.startswith(("http://", "https://"))
 
@@ -176,7 +185,8 @@ def rewrite_markdown_links(
 
         parsed = urlparse(abs_url)
         frag = f"#{parsed.fragment}" if parsed.fragment else ""
-        target_relpath = lookup.get(normalize_url_key(abs_url))
+        target_key = normalize_url_key(abs_url)
+        target_relpath = link_lookup.get(target_key) or link_lookup.get(_without_doc_extension(target_key))
 
         if target_relpath is not None:
             if target_relpath == source_relpath and frag:
@@ -195,18 +205,11 @@ def rewrite_markdown_links(
         return f"{prefix}{urljoin(source_url, raw_src)}{suffix}"
 
     output_lines: list[str] = []
-    in_code_block = False
-    for line in markdown.splitlines():
-        if line.strip().startswith(("```", "~~~")):
-            in_code_block = not in_code_block
-            output_lines.append(line)
-            continue
-        if in_code_block:
-            output_lines.append(line)
-            continue
-        rewritten_line = _MD_INLINE_LINK_RE.sub(replace_match, line)
-        rewritten_line = _HTML_IMG_SRC_RE.sub(replace_html_img_src, rewritten_line)
-        output_lines.append(rewritten_line)
+    for line, in_code_block in iter_lines_with_code_flag(markdown):
+        if not in_code_block:
+            line = sub_outside_code_spans(_MD_INLINE_LINK_RE, replace_match, line)
+            line = sub_outside_code_spans(_HTML_IMG_SRC_RE, replace_html_img_src, line)
+        output_lines.append(line)
 
     return "\n".join(output_lines)
 
@@ -240,22 +243,27 @@ def format_frontmatter(
     timestamp: str | None = None,
     fields: Sequence[FrontmatterField] = FRONTMATTER_FIELDS,
 ) -> str:
-    """Render a YAML frontmatter block containing the selected metadata fields."""
+    """Render a YAML frontmatter block with the selected fields, or an empty string when none has a value."""
     resolved_fields = parse_frontmatter_fields(fields)
     ts_value = timestamp if timestamp is not None else datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    lines = ["---"]
+    # JSON strings are valid YAML double-quoted scalars, which keeps ":" and "#" in values from being misparsed.
+    lines: list[str] = []
     for field in resolved_fields:
         if field == "title":
             lines.append(f"title: {json.dumps(title, ensure_ascii=False)}")
         elif field == "description":
             lines.append(f"description: {json.dumps(description, ensure_ascii=False)}")
         elif field == "source" and source_url:
-            lines.append(f"source: {source_url}")
+            lines.append(f"source: {json.dumps(source_url, ensure_ascii=False)}")
         elif field == "timestamp":
             lines.append(f"timestamp: {ts_value}")
-    lines.append("---")
-    return "\n".join(lines)
+    return "\n".join(["---", *lines, "---"]) if lines else ""
+
+
+def _link_label(title: str) -> str:
+    # Unescaped brackets or line breaks in a title would break the surrounding `[label](target)` syntax.
+    return re.sub(r"([\[\]])", r"\\\1", " ".join(title.split()))
 
 
 def _humanize_dir_name(dir_path: str) -> str:
@@ -328,7 +336,7 @@ def generate_toc_files(
                     if sub_overview is not None and sub_overview.description != sub_title
                     else ""
                 )
-                lines.append(f"- [{sub_title}]({sub_name}/index.md){sub_desc}")
+                lines.append(f"- [{_link_label(sub_title)}]({sub_name}/index.md){sub_desc}")
             lines.append("")
 
         if direct_pages:
@@ -336,7 +344,7 @@ def generate_toc_files(
             for page in direct_pages:
                 filename = posixpath.basename(page.relpath)
                 desc_part = f" - {page.description}" if page.description and page.description != page.title else ""
-                lines.append(f"- [{page.title}]({filename}){desc_part}")
+                lines.append(f"- [{_link_label(page.title)}]({filename}){desc_part}")
             lines.append("")
 
         toc_relpath = f"{current_dir}/index.md" if current_dir else "index.md"
