@@ -357,7 +357,7 @@ def _write_files(output_dir: Path, files: Mapping[str, str]) -> None:
 
 def _resolve_crawl_config(
     url_or_config: CrawlConfig | str,
-    output_dir: str | Path | None = None,
+    output_dir: str | PathLike[str] | None = None,
     *,
     max_depth: int = 2,
     max_pages: int = 100,
@@ -391,7 +391,7 @@ def _resolve_crawl_config(
 
 async def crawl_site(
     url_or_config: CrawlConfig | str,
-    output_dir: str | Path | None = None,
+    output_dir: str | PathLike[str] | None = None,
     *,
     max_depth: int = 2,
     max_pages: int = 100,
@@ -515,7 +515,7 @@ async def crawl_site(
 
 def crawl_site_sync(
     url_or_config: CrawlConfig | str,
-    output_dir: str | Path | None = None,
+    output_dir: str | PathLike[str] | None = None,
     *,
     max_depth: int = 2,
     max_pages: int = 100,
