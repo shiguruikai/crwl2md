@@ -99,6 +99,7 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
     assert exit_code == 0
     assert (received[0].max_depth, received[0].include_patterns) == (3, ["/docs/**"])
     assert "Crawled 2 pages and generated 1 index files" in captured.out
+    assert "Crawl scope: /docs/**" in captured.err
     assert "  - https://example.com/docs/gone: HTTP 404" in captured.err
     assert "  - https://example.com/login" in captured.err
 
@@ -107,7 +108,7 @@ def test_cli_crawl_reports_invalid_regex_pattern(tmp_path: Path, capsys: pytest.
     exit_code = main(["crawl", "https://example.com/docs/", "-o", str(tmp_path), "--include", "^("])
 
     assert exit_code == 1
-    assert capsys.readouterr().err.startswith("Error: ")
+    assert "\nError: " in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("option", [["--max-depth", "-1"], ["--max-pages", "0"]])

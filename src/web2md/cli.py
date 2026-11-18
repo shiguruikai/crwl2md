@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 
 from web2md import __version__
-from web2md.crawler import CrawlConfig, convert_single, crawl_site
+from web2md.crawler import CrawlConfig, convert_single, crawl_site, describe_crawl_scope
 from web2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
 
 
@@ -87,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     crawl_parser.add_argument(
         "--allow-all-paths",
         action="store_true",
-        help="Allow crawling any path on the seed domain instead of restricting to the seed path prefix.",
+        help="Allow crawling any path on the seed domain instead of restricting to the seed URL's directory.",
     )
     _add_frontmatter_options(crawl_parser)
     crawl_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose crawler logging.")
@@ -135,6 +135,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 frontmatter_fields=frontmatter_fields,
                 verbose=args.verbose,
             )
+            print(f"Crawl scope: {describe_crawl_scope(config)}", file=sys.stderr)
             summary = asyncio.run(crawl_site(config))
             print(
                 f"Crawled {summary.page_count} pages and generated {summary.toc_count} index files in {summary.output_dir}"

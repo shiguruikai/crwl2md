@@ -213,15 +213,41 @@ def compile_url_pattern(pattern: str | re.Pattern[str]) -> re.Pattern[str]:
     return re.compile(rf"^{body}{subtree}$")
 
 
+def _seed_scope_dir(seed_url: str) -> str | None:
+    """Return the directory that bounds the crawl by default, or None when the whole host is in scope."""
+    path = urlparse(seed_url).path or "/"
+    if path.endswith("/"):
+        scope_dir = path
+    else:
+        # A page seed ("/docs/intro") is scoped to its directory so that sibling pages are crawled too.
+        scope_dir = posixpath.dirname(path)
+        # "/docs" has no parent directory to fall back on; scoping it to "/" would silently cover the whole host.
+        # A root-level file such as "/index.html" still means the whole host.
+        if scope_dir == "/" and "." not in posixpath.basename(path):
+            scope_dir = path
+    return scope_dir.rstrip("/") or None
+
+
 def _build_path_scope_regex(seed_url: str) -> re.Pattern[str] | None:
-    parsed = urlparse(seed_url)
-    path = parsed.path or "/"
-    dir_path = posixpath.dirname(path) if not path.endswith("/") else path.rstrip("/")
-    if not dir_path or dir_path == "/":
+    scope_dir = _seed_scope_dir(seed_url)
+    if scope_dir is None:
         return None
-    escaped_host = re.escape(parsed.netloc.lower())
-    escaped_prefix = re.escape(dir_path.rstrip("/"))
-    return re.compile(rf"^https?://{escaped_host}{escaped_prefix}(?:[/?].*)?$")
+    escaped_host = re.escape(urlparse(seed_url).netloc.lower())
+    return re.compile(rf"^https?://{escaped_host}{re.escape(scope_dir)}(?:[/?].*)?$")
+
+
+def describe_crawl_scope(config: CrawlConfig) -> str:
+    """Describe in one line which URLs a crawl with `config` may visit beyond the seed page."""
+    parsed = urlparse(config.url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    if config.include_patterns:
+        scope = ", ".join(config.include_patterns)
+    else:
+        scope_dir = None if config.allow_all_paths else _seed_scope_dir(config.url)
+        scope = f"{origin}{scope_dir or ''}/**"
+    if config.exclude_patterns:
+        scope += f" (excluding {', '.join(config.exclude_patterns)})"
+    return scope
 
 
 def build_filter_chain(config: CrawlConfig) -> FilterChain:

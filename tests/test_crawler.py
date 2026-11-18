@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -13,6 +14,7 @@ from web2md.crawler import (
     _resolve_output_path,
     build_filter_chain,
     compile_url_pattern,
+    describe_crawl_scope,
 )
 
 
@@ -258,6 +260,12 @@ async def test_build_filter_chain_uses_include_patterns(tmp_path: Path):
         ("http://127.0.0.1:8000/docs/", "http://127.0.0.1:8000/docs/guide", True),
         ("http://localhost:3000/docs/", "http://localhost:3000/docs/guide", True),
         ("http://localhost:3000/docs/", "http://localhost:3000/blog/post", False),
+        # A single-segment seed is scoped to itself rather than to the whole host.
+        ("https://example.com/docs", "https://example.com/docs/guide", True),
+        ("https://example.com/docs", "https://example.com/blog/post", False),
+        # Root-level seeds cover the whole host.
+        ("https://example.com/", "https://example.com/blog/post", True),
+        ("https://example.com/index.html", "https://example.com/blog/post", True),
     ],
 )
 async def test_build_filter_chain_limits_crawl_to_seed_host_and_directory(
@@ -268,6 +276,32 @@ async def test_build_filter_chain_limits_crawl_to_seed_host_and_directory(
     chain = build_filter_chain(config)
 
     assert await chain.apply(url) is expected
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ({"url": "https://example.com/docs/intro"}, "https://example.com/docs/**"),
+        ({"url": "https://example.com/docs/v2/"}, "https://example.com/docs/v2/**"),
+        ({"url": "https://example.com/docs"}, "https://example.com/docs/**"),
+        ({"url": "https://example.com/"}, "https://example.com/**"),
+        ({"url": "http://localhost:3000/docs/intro", "allow_all_paths": True}, "http://localhost:3000/**"),
+        (
+            {"url": "https://example.com/docs/intro", "include_patterns": ["/docs/**", "/api/**"]},
+            "/docs/**, /api/**",
+        ),
+        (
+            {"url": "https://example.com/docs/intro", "exclude_patterns": ["*/changelog"]},
+            "https://example.com/docs/** (excluding */changelog)",
+        ),
+    ],
+)
+def test_describe_crawl_scope(tmp_path: Path, options: dict[str, Any], expected: str):
+    config = CrawlConfig(output_dir=tmp_path / "out", **options)
+
+    description = describe_crawl_scope(config)
+
+    assert description == expected
 
 
 async def test_bfs_strategy_follows_links_on_hosts_without_a_dot(tmp_path: Path):
