@@ -1,14 +1,13 @@
 from importlib.metadata import version
 
 from web2md.crawler import CrawlConfig, CrawlSummary, FailedPage, convert_single, crawl_site, crawl_site_sync
-from web2md.extractors import ExtractorType, extract_markdown
+from web2md.extractors import extract_markdown
 from web2md.site_builder import FRONTMATTER_FIELDS, FrontmatterField
 
 __all__ = [
     "FRONTMATTER_FIELDS",
     "CrawlConfig",
     "CrawlSummary",
-    "ExtractorType",
     "FailedPage",
     "FrontmatterField",
     "__version__",

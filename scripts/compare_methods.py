@@ -3,15 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
-from web2md.extractors import (
-    EXTRACTOR_METHODS,
-    ExtractorType,
-    extract_markdown,
-    extract_page_metadata,
-    extract_sidebar_links,
-)
+from bs4 import BeautifulSoup
+from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
+
+from web2md.extractors import extract_markdown, extract_page_metadata, extract_sidebar_links
 from web2md.site_builder import CrawledPageDoc, compute_relative_paths, generate_toc_files
 
 
@@ -152,6 +150,21 @@ class CounterAction:
 )
 
 
+def convert_with_crawl4ai(html: str, url: str) -> str:
+    """Reference conversion using Crawl4AI's default Markdown generator, limited to <main> when present."""
+    main_el = BeautifulSoup(html, "lxml").select_one("main")
+    target_html = str(main_el) if main_el is not None else html
+    result = DefaultMarkdownGenerator().generate_markdown(input_html=target_html, base_url=url, citations=False)
+    return result.raw_markdown.strip()
+
+
+# web2md's extractor compared against the Crawl4AI conversion that it was chosen over.
+CONVERTERS: dict[str, Callable[[str, str], str]] = {
+    "dom-markdownify": extract_markdown,
+    "crawl4ai": convert_with_crawl4ai,
+}
+
+
 def benchmark_extractors(iterations: int = 5, dump: bool = False) -> None:
     """Run HTML-to-Markdown extraction benchmarks across all fixtures."""
     print("## HTML → Markdown 抽出手法の比較\n")
@@ -160,12 +173,13 @@ def benchmark_extractors(iterations: int = 5, dump: bool = False) -> None:
         print("| 手法 | 平均時間 (ms) | 文字数 | 必須要素の保持 | ノイズ除去 |")
         print("| --- | ---: | ---: | --- | --- |")
 
-        outputs: dict[ExtractorType, str] = {}
-        for method in EXTRACTOR_METHODS:
-            md = ""
+        outputs: dict[str, str] = {}
+        for method, convert in CONVERTERS.items():
+            # The first call pays one-off costs (selector compilation, lazy imports), so keep it out of the timing.
+            md = convert(fixture.html, fixture.url)
             start = time.perf_counter()
             for _ in range(iterations):
-                md = extract_markdown(fixture.html, url=fixture.url, method=method)
+                md = convert(fixture.html, fixture.url)
             elapsed_ms = (time.perf_counter() - start) * 1000 / iterations
             outputs[method] = md
 
@@ -261,7 +275,7 @@ def benchmark_metadata_extraction() -> None:
     """Print extracted page metadata samples across fixtures."""
     print("\n## メタデータ抽出サンプル\n")
     for fixture in FIXTURES:
-        md = extract_markdown(fixture.html, url=fixture.url, method="dom-markdownify")
+        md = extract_markdown(fixture.html, url=fixture.url)
         meta = extract_page_metadata(fixture.html, md)
         print(f"- {fixture.name}: {json.dumps(meta.model_dump(), ensure_ascii=False)}")
 

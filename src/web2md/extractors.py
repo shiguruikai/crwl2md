@@ -2,19 +2,15 @@ from __future__ import annotations
 
 import html as html_lib
 import re
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
 from bs4.element import Comment, NavigableString, PageElement
-from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from markdownify import MarkdownConverter
 from pydantic import BaseModel
 
-from web2md.markdown_code import iter_lines_with_code_flag, sub_outside_code_spans
-
-ExtractorType = Literal["dom-markdownify", "crawl4ai"]
-EXTRACTOR_METHODS: tuple[ExtractorType, ...] = ("dom-markdownify", "crawl4ai")
+from web2md.markdown_code import iter_lines_with_code_flag
 
 # Ordered from framework-specific content containers to generic HTML/ARIA landmarks:
 # - .theme-doc-markdown: Docusaurus article body (excludes breadcrumbs, TOC, and pagination inside <main>).
@@ -112,8 +108,6 @@ _CODE_LANG_CLASS_RE = re.compile(r"^(?:language|highlight-source|highlight)-([a-
 _CODE_LANG_SHORT_CLASS_RE = re.compile(r"^lang-([a-zA-Z0-9_+-]+)$")
 # Sphinx emits `highlight-default` / `highlight-none` when no language is set.
 _NON_LANGUAGE_NAMES = frozenset({"default", "none"})
-# Strips empty Markdown links `[](...)` left by icon-only anchors in Crawl4AI output; the lookbehind preserves `![](...)`.
-_EMPTY_ANCHOR_RE = re.compile(r"(?<!!)\[\s*\]\([^)]+\)")
 # Matches empty or symbol-only heading permalink anchors (\u200b in Docusaurus/VitePress, #/¶ in Zensical, \uf0c1 in MkDocs).
 _HEADING_ANCHOR_TEXT_RE = re.compile(r"^[\u200b#\u00b6\uf0c1\s]*$")
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
@@ -271,21 +265,6 @@ def _normalize_anchor_newlines(container: Tag) -> None:
                 node.replace_with(re.sub(r"\s*\r?\n\s*", " ", str(node)))
 
 
-def _strip_leading_nav_lines(lines: list[str]) -> list[str]:
-    # Guard against wiping documents that lack a top-level H1 by dropping preamble only when an H1 appears early.
-    first_h1_idx = next((i for i, line in enumerate(lines[:30]) if line.lstrip().startswith("# ")), None)
-    if first_h1_idx is None or first_h1_idx == 0:
-        return lines
-
-    preamble = [line.strip() for line in lines[:first_h1_idx] if line.strip()]
-    is_nav_preamble = all(
-        len(line) <= 100
-        and (line.startswith(("* ", "- ", "[")) or line.lower() in {"on this page", "table of contents", "contents"})
-        for line in preamble
-    )
-    return lines[first_h1_idx:] if is_nav_preamble else lines
-
-
 def _pick_image_src(el: Tag) -> str:
     srcset = el.get("srcset") or el.get("data-srcset")
     first_srcset_url = srcset.split(",")[0].split()[0] if isinstance(srcset, str) and srcset.strip() else None
@@ -346,23 +325,17 @@ class _DomMarkdownConverter(MarkdownConverter):
         return f"<img {' '.join(attrs)}>"
 
 
-def _postprocess_markdown(markdown: str, *, clean_crawl4ai_noise: bool = False) -> str:
+def _postprocess_markdown(markdown: str) -> str:
     text = markdown.replace("\r\n", "\n").replace("\r", "\n").replace("\u200b", "")
 
     # Whitespace cleanup applies to prose only; code blocks must come through unchanged.
     lines: list[str] = []
     for line, in_code_block in iter_lines_with_code_flag(text):
-        if in_code_block:
-            lines.append(line)
-            continue
-        if clean_crawl4ai_noise:
-            line = sub_outside_code_spans(_EMPTY_ANCHOR_RE, lambda _: "", line)
-        line = line.rstrip()
-        if line or not lines or lines[-1]:
-            lines.append(line)
-
-    if clean_crawl4ai_noise:
-        lines = _strip_leading_nav_lines(lines)
+        if not in_code_block:
+            line = line.rstrip()
+            if not line and lines and not lines[-1]:
+                continue
+        lines.append(line)
     return "\n".join(lines).strip()
 
 
@@ -370,7 +343,11 @@ def _select_main_container(soup: BeautifulSoup) -> Tag:
     return next((el for selector in _MAIN_SELECTORS if (el := soup.select_one(selector)) is not None), soup)
 
 
-def _extract_with_dom_markdownify(html: str, url: str = "") -> str:
+def extract_markdown(html: str, url: str = "") -> str:
+    """Convert the main content of an HTML page into cleaned Markdown, resolving image URLs against `url`."""
+    if not html.strip():
+        return ""
+
     soup = BeautifulSoup(html, "lxml")
     target = _select_main_container(soup)
     # Tab labels and <aside> callouts must be rewritten before the generic <button>/<aside> removal.
@@ -385,38 +362,7 @@ def _extract_with_dom_markdownify(html: str, url: str = "") -> str:
         # Trailing-space line breaks would be lost to whitespace cleanup, so <br> becomes a backslash break.
         newline_style="BACKSLASH",
     )
-    raw_markdown = converter.convert(str(target))
-    return _postprocess_markdown(raw_markdown)
-
-
-def _extract_with_crawl4ai(html: str, url: str, crawl4ai_markdown: str | None) -> str:
-    if crawl4ai_markdown and crawl4ai_markdown.strip():
-        return _postprocess_markdown(crawl4ai_markdown, clean_crawl4ai_noise=True)
-
-    target_html = html
-    if html.strip():
-        main_el = BeautifulSoup(html, "lxml").select_one("main")
-        if main_el is not None:
-            target_html = str(main_el)
-
-    result = DefaultMarkdownGenerator().generate_markdown(input_html=target_html, base_url=url, citations=False)
-    return _postprocess_markdown(result.raw_markdown, clean_crawl4ai_noise=True)
-
-
-def extract_markdown(
-    html: str,
-    url: str = "",
-    method: ExtractorType = "dom-markdownify",
-    crawl4ai_markdown: str | None = None,
-) -> str:
-    """Convert HTML into cleaned Markdown using the specified extraction method."""
-    if not html.strip() and crawl4ai_markdown is None:
-        return ""
-    if method == "dom-markdownify":
-        return _extract_with_dom_markdownify(html, url=url)
-    if method == "crawl4ai":
-        return _extract_with_crawl4ai(html, url, crawl4ai_markdown)
-    raise ValueError(f"Unsupported extractor method: {method}")
+    return _postprocess_markdown(converter.convert(str(target)))
 
 
 def _to_plain_text(inline_markdown: str) -> str:

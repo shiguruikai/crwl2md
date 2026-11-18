@@ -23,12 +23,13 @@
 ## コマンド
 
 - 定型操作は [Taskfile.yml](Taskfile.yml) に集約しており、`task <TASK>`（`setup`, `format`, `lint`, `test`）で実行する。
-- 手法比較ベンチマークは [scripts/compare_methods.py](scripts/compare_methods.py) を `uv run python` で実行する。
+- 抽出結果と目次生成のベンチマークは [scripts/compare_methods.py](scripts/compare_methods.py) を `uv run python` で実行する。
 
 ## 構成
 
 - [src/web2md/\_\_init\_\_.py](src/web2md/__init__.py): 公開 API のエクスポート
-- [src/web2md/extractors.py](src/web2md/extractors.py): HTML→Markdown 変換（`dom-markdownify`, `crawl4ai`）、メタデータ抽出、サイドバーリンク抽出
+- [src/web2md/extractors.py](src/web2md/extractors.py): HTML→Markdown 変換（本文コンテナの選択、不要要素の除去、markdownify による変換）、メタデータ抽出、サイドバーリンク抽出
+- [src/web2md/markdown_code.py](src/web2md/markdown_code.py): Markdown のフェンス付きコードブロックとインラインコードの判定（後処理やリンク書き換えの対象から外すために使う）
 - [src/web2md/site_builder.py](src/web2md/site_builder.py): URL→相対パス設計、Markdown 内の相対リンク書き換え、YAML フロントマター生成、階層目次（`index.md`）生成
 - [src/web2md/crawler.py](src/web2md/crawler.py): 単一ページ変換（`convert_single`）および Crawl4AI によるサイトクロール（`crawl_site`, `crawl_site_sync`）
 - [src/web2md/cli.py](src/web2md/cli.py): `web2md` CLI エントリポイント

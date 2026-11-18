@@ -11,7 +11,6 @@ import httpx
 
 from web2md import __version__
 from web2md.crawler import CrawlConfig, convert_single, crawl_site
-from web2md.extractors import EXTRACTOR_METHODS
 from web2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
 
 
@@ -53,12 +52,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     convert_parser.add_argument("source", help="Source URL or local HTML file path.")
     convert_parser.add_argument("-o", "--output", type=Path, help="Output Markdown file path (default: stdout).")
-    convert_parser.add_argument(
-        "--method",
-        choices=EXTRACTOR_METHODS,
-        default="dom-markdownify",
-        help="HTML-to-Markdown extraction method (default: dom-markdownify).",
-    )
     _add_frontmatter_options(convert_parser)
 
     crawl_parser = subparsers.add_parser(
@@ -78,12 +71,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     crawl_parser.add_argument(
         "--max-pages", type=_int_at_least(1), default=100, metavar="N", help="Maximum number of pages (default: 100)."
-    )
-    crawl_parser.add_argument(
-        "--method",
-        choices=EXTRACTOR_METHODS,
-        default="dom-markdownify",
-        help="HTML-to-Markdown extraction method (default: dom-markdownify).",
     )
     crawl_parser.add_argument(
         "--include",
@@ -121,7 +108,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "convert":
             markdown = convert_single(
                 args.source,
-                method=args.method,
                 frontmatter=args.frontmatter,
                 frontmatter_fields=frontmatter_fields,
             )
@@ -142,7 +128,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output_dir=args.output,
                 max_depth=args.max_depth,
                 max_pages=args.max_pages,
-                method=args.method,
                 include_patterns=args.include,
                 exclude_patterns=args.exclude,
                 allow_all_paths=args.allow_all_paths,

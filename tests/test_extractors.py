@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import pytest
-
 from web2md.extractors import (
-    EXTRACTOR_METHODS,
     extract_markdown,
     extract_page_metadata,
     extract_sidebar_links,
@@ -66,10 +63,10 @@ uv run web2md --help</code></pre>
 """
 
 
-def test_extract_markdown_dom_markdownify():
+def test_extract_markdown_removes_page_chrome_and_keeps_content():
     html = SAMPLE_DOCUSAURUS_HTML
 
-    md = extract_markdown(html, url="https://docs.example.com/docs/sdk/getting-started", method="dom-markdownify")
+    md = extract_markdown(html, url="https://docs.example.com/docs/sdk/getting-started")
 
     assert "# Getting Started" in md
     assert "Install the CLI and run your first **project**." in md
@@ -83,56 +80,25 @@ def test_extract_markdown_dom_markdownify():
     assert "Copyright 2026" not in md
 
 
-def test_extract_markdown_crawl4ai_cleans_nav_and_preserves_body():
-    raw_c4ai = "\n".join(
-        [
-            "* [Home](https://docs.example.com/)",
-            "* SDK",
-            "",
-            "# Getting Started[\u200b](https://docs.example.com/#top)",
-            "",
-            "Body paragraph here.",
-            "",
-            "[Next Actions](https://docs.example.com/docs/sdk/actions)",
-        ]
-    )
-
-    md = extract_markdown(SAMPLE_DOCUSAURUS_HTML, method="crawl4ai", crawl4ai_markdown=raw_c4ai)
-
-    assert md.startswith("# Getting Started\n")
-    assert "Body paragraph here." in md
-    assert "[Next Actions](https://docs.example.com/docs/sdk/actions)" in md
-    assert "\u200b" not in md
-
-
-def test_extract_markdown_crawl4ai_preserves_content_without_h1():
-    raw_c4ai = "Intro paragraph without top-level heading.\n\n## Section\n\nDetails."
-
-    md = extract_markdown("<html><body><p>Intro</p></body></html>", method="crawl4ai", crawl4ai_markdown=raw_c4ai)
-
-    assert "Intro paragraph without top-level heading." in md
-    assert "## Section" in md
-
-
-@pytest.mark.parametrize("method", EXTRACTOR_METHODS)
-def test_extract_markdown_all_methods_extract_main_text(method):
+def test_extract_markdown_falls_back_to_article_without_main_landmark():
     html = """
     <html><head><title>Guide | Docs</title></head>
     <body>
+      <header><nav><a href="/">Top</a></nav></header>
       <article>
         <h1>Guide</h1>
-        <p>This guide explains how to crawl technical documentation and convert every article into clean Markdown files for offline reading.</p>
-        <p>Each extracted section preserves headings, links, and code blocks accurately across multiple paragraphs of prose.</p>
+        <p>This guide explains how to crawl technical documentation.</p>
       </article>
+      <aside><h2>Related Posts</h2></aside>
     </body></html>
     """
 
-    md = extract_markdown(html, url="https://docs.example.com/guide", method=method)
+    md = extract_markdown(html, url="https://docs.example.com/guide")
 
-    assert "clean Markdown files" in md
+    assert md == "# Guide\n\nThis guide explains how to crawl technical documentation."
 
 
-def test_extract_markdown_dom_markdownify_supports_nested_code_lang_admonition_and_multiline_links():
+def test_extract_markdown_supports_nested_code_lang_admonition_and_multiline_links():
     html = """
     <html><body><main>
       <h1>Install</h1>
@@ -151,16 +117,11 @@ def test_extract_markdown_dom_markdownify_supports_nested_code_lang_admonition_a
     </main></body></html>
     """
 
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     assert "```bash\nnpm install -g @elgato/cli\n```" in md
     assert "> **info**" in md
     assert "> Read [Install Node.js on Windows](https://example.com/win) for details." in md
-
-
-def test_extract_markdown_unsupported_method_raises():
-    with pytest.raises(ValueError, match="Unsupported extractor method"):
-        extract_markdown("<p>hi</p>", method="unknown")  # type: ignore[arg-type]
 
 
 def test_extract_markdown_empty_input():
@@ -223,7 +184,7 @@ def test_extract_markdown_preserves_images_as_html_img_tags():
     </main></body></html>
     """
 
-    md = extract_markdown(html, url="https://docs.example.com/v1/guide/start/", method="dom-markdownify")
+    md = extract_markdown(html, url="https://docs.example.com/v1/guide/start/")
 
     assert '# Guide <img src="https://docs.example.com/img/badge.svg" alt="">' in md
     assert (
@@ -255,7 +216,7 @@ def test_extract_markdown_handles_mdn_patterns():
     </body></html>
     """
 
-    md = extract_markdown(html, url="https://developer.mozilla.org/en-US/docs/RegExp", method="dom-markdownify")
+    md = extract_markdown(html, url="https://developer.mozilla.org/en-US/docs/RegExp")
 
     assert "Translated notice" not in md
     assert "On this page" not in md
@@ -299,8 +260,8 @@ def test_extract_markdown_handles_vitepress_and_zensical_containers():
     </main></body></html>
     """
 
-    vp_md = extract_markdown(vitepress_html, method="dom-markdownify")
-    zen_md = extract_markdown(zensical_html, method="dom-markdownify")
+    vp_md = extract_markdown(vitepress_html)
+    zen_md = extract_markdown(zensical_html)
 
     assert vp_md.startswith("# CLI\n")
     assert "> **TIP**\n>\n> Run vitepress dev." in vp_md
@@ -336,7 +297,7 @@ def test_extract_markdown_keeps_empty_link_like_code_intact():
     </main></body></html>
     """
 
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     assert "std::sort(v.begin(), v.end(), [](int a, int b) { return a < b; });" in md
     assert "`[](int x)`" in md
@@ -351,7 +312,7 @@ def test_extract_markdown_drops_icon_only_links():
     </main></body></html>
     """
 
-    md = extract_markdown(html, url="https://docs.example.com/", method="dom-markdownify")
+    md = extract_markdown(html, url="https://docs.example.com/")
 
     assert "github.com" not in md
     assert '[<img src="https://docs.example.com/logo.png" alt="Logo">](/logo)' in md
@@ -364,7 +325,7 @@ def test_extract_markdown_preserves_blank_lines_and_indentation_inside_code_bloc
         "</main></body></html>"
     )
 
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     assert "```python\ndef a():\n    pass\n\n\ndef b():\n    pass\n```" in md
 
@@ -372,7 +333,7 @@ def test_extract_markdown_preserves_blank_lines_and_indentation_inside_code_bloc
 def test_extract_markdown_collapses_blank_lines_in_prose():
     html = "<html><body><main><h1>Title</h1><div><div><p>One</p></div></div><div><p>Two</p></div></main></body></html>"
 
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     assert md == "# Title\n\nOne\n\nTwo"
 
@@ -380,7 +341,7 @@ def test_extract_markdown_collapses_blank_lines_in_prose():
 def test_extract_markdown_keeps_line_breaks_as_backslash_breaks():
     html = "<html><body><main><h1>Address</h1><p>Line one<br>Line two</p></main></body></html>"
 
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     assert "Line one\\\nLine two" in md
 
@@ -397,8 +358,8 @@ def test_extract_markdown_joins_code_lines_wrapped_in_block_elements():
     </main></body></html>
     """
 
-    docusaurus_md = extract_markdown(docusaurus_html, method="dom-markdownify")
-    expressive_code_md = extract_markdown(expressive_code_html, method="dom-markdownify")
+    docusaurus_md = extract_markdown(docusaurus_html)
+    expressive_code_md = extract_markdown(expressive_code_html)
 
     assert "```bash\ncd my-website\nnpm run start\n```" in docusaurus_md
     assert "```js\nconst a = 1;\nconst b = 2;\n```" in expressive_code_md
@@ -411,7 +372,7 @@ def test_extract_markdown_lengthens_fence_for_code_containing_backtick_fences():
         "<p>After.</p></main></body></html>"
     )
 
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     assert "````markdown\n```python\nprint(1)\n```\n````" in md
     assert md.endswith("After.")
@@ -432,7 +393,7 @@ def test_extract_markdown_keeps_every_tab_panel_with_its_label():
     </main></body></html>
     """
 
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     assert "**npm**\n\n```bash\nnpm install foo\n```" in md
     assert "**Yarn**\n\n```bash\nyarn add foo\n```" in md
@@ -452,7 +413,7 @@ def test_extract_markdown_converts_starlight_asides_to_blockquotes():
     </main></body></html>
     """
 
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     assert "> **Caution**\n>\n> Do not delete the lock file." in md
     assert "On this page" not in md
@@ -468,7 +429,7 @@ def test_extract_markdown_keeps_section_headers_and_drops_navigation_headers():
     </main></body></html>
     """
 
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     assert "## Section title\n\nLead text.\n\nBody text." in md
     assert "Site menu" not in md
@@ -484,7 +445,7 @@ def test_extract_markdown_detects_sphinx_code_language():
     </div></body></html>
     """
 
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     assert "```python\nimport os\n```" in md
     assert "```\nplain output\n```" in md
@@ -493,7 +454,7 @@ def test_extract_markdown_detects_sphinx_code_language():
 def test_extract_markdown_ignores_locale_class_on_code_block_ancestors():
     html = '<html><body><main class="lang-ja"><h1>X</h1><pre><code>plain text</code></pre></main></body></html>'
 
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     assert "```\nplain text\n```" in md
 
@@ -508,20 +469,11 @@ def test_extract_markdown_prefers_real_image_url_over_lazy_loading_placeholder()
     </main></body></html>
     """
 
-    md = extract_markdown(html, url="https://docs.example.com/guide", method="dom-markdownify")
+    md = extract_markdown(html, url="https://docs.example.com/guide")
 
     assert '<img src="https://docs.example.com/img/real.png" alt="Lazy">' in md
     assert '<img src="https://docs.example.com/img/small.png" alt="Responsive">' in md
     assert '<img src="data:image/png;base64,iVBORw0KGgo=" alt="Inline">' in md
-
-
-def test_extract_markdown_crawl4ai_keeps_empty_link_like_code_intact():
-    raw_c4ai = "# Title\n\nIcon [](https://example.com/icon) and `[](int x)`.\n\n```cpp\nauto f = [](int x) { return x; };\n```"
-
-    md = extract_markdown("<html></html>", method="crawl4ai", crawl4ai_markdown=raw_c4ai)
-
-    assert "Icon  and `[](int x)`." in md
-    assert "auto f = [](int x) { return x; };" in md
 
 
 def test_extract_page_metadata_strips_markup_from_title():
@@ -550,7 +502,7 @@ def test_extract_page_metadata_ignores_site_name_heading_outside_main_content():
       <main><h2>Section</h2><p>Body text.</p></main>
     </body></html>
     """
-    md = extract_markdown(html, method="dom-markdownify")
+    md = extract_markdown(html)
 
     meta = extract_page_metadata(html, md)
 

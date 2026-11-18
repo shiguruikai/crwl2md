@@ -26,7 +26,6 @@ from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 from pydantic import BaseModel, Field
 
 from web2md.extractors import (
-    ExtractorType,
     extract_markdown,
     extract_page_metadata,
     extract_sidebar_links,
@@ -58,7 +57,6 @@ class CrawlConfig(BaseModel):
     output_dir: Path
     max_depth: int = Field(default=2, ge=0)
     max_pages: int = Field(default=100, ge=1)
-    method: ExtractorType = "dom-markdownify"
     include_patterns: list[str] = Field(default_factory=list)
     exclude_patterns: list[str] = Field(default_factory=list)
     allow_all_paths: bool = False
@@ -112,20 +110,6 @@ def _flatten_crawl_results(raw_result: Any) -> list[CrawlResult]:
     return []
 
 
-async def _fetch_single_with_crawl4ai(url: str) -> tuple[str, str, str | None]:
-    run_config = CrawlerRunConfig(scraping_strategy=LXMLWebScrapingStrategy(), verbose=False)
-    async with AsyncWebCrawler(config=BrowserConfig(headless=True, verbose=False)) as crawler:
-        raw_result: Any = await crawler.arun(url, config=run_config)
-        results = _flatten_crawl_results(raw_result)
-        if not results or not results[0].success:
-            err = results[0].error_message if results else "Unknown error"
-            raise RuntimeError(f"Failed to crawl {url}: {err}")
-        first = results[0]
-        final_url = first.redirected_url or first.url
-        raw_md = str(first.markdown) if first.markdown is not None else None
-        return first.html, final_url, raw_md
-
-
 def fetch_html(url: str, timeout: float = 30.0) -> tuple[str, str]:
     """Fetch HTML and the resolved final URL over HTTP(S)."""
     response = httpx.get(url, follow_redirects=True, timeout=timeout)
@@ -146,19 +130,14 @@ def _resolve_frontmatter_fields(
 
 def convert_single(
     source: str,
-    method: ExtractorType = "dom-markdownify",
     frontmatter: bool = False,
     frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
 ) -> str:
     """Convert a single HTTP(S) URL or local HTML file into Markdown."""
     resolved_fields = _resolve_frontmatter_fields(frontmatter, frontmatter_fields)
 
-    crawl4ai_markdown: str | None = None
     if source.startswith(("http://", "https://")):
-        if method == "crawl4ai":
-            html, final_url, crawl4ai_markdown = asyncio.run(_fetch_single_with_crawl4ai(source))
-        else:
-            html, final_url = fetch_html(source)
+        html, final_url = fetch_html(source)
     else:
         local_path = _resolve_local_path(source)
         if not local_path.is_file():
@@ -166,7 +145,7 @@ def convert_single(
         html = _decode_html(local_path.read_bytes())
         final_url = ""
 
-    md = extract_markdown(html, url=final_url, method=method, crawl4ai_markdown=crawl4ai_markdown)
+    md = extract_markdown(html, url=final_url)
     if final_url:
         # A standalone file has no sibling pages, so every relative link must become an absolute URL.
         md = rewrite_markdown_links(md, final_url, "", {})
@@ -352,7 +331,6 @@ def _resolve_crawl_config(
     *,
     max_depth: int = 2,
     max_pages: int = 100,
-    method: ExtractorType = "dom-markdownify",
     include_patterns: Sequence[str] = (),
     exclude_patterns: Sequence[str] = (),
     allow_all_paths: bool = False,
@@ -370,7 +348,6 @@ def _resolve_crawl_config(
         output_dir=Path(output_dir),
         max_depth=max_depth,
         max_pages=max_pages,
-        method=method,
         include_patterns=list(include_patterns),
         exclude_patterns=list(exclude_patterns),
         allow_all_paths=allow_all_paths,
@@ -386,7 +363,6 @@ async def crawl_site(
     *,
     max_depth: int = 2,
     max_pages: int = 100,
-    method: ExtractorType = "dom-markdownify",
     include_patterns: Sequence[str] = (),
     exclude_patterns: Sequence[str] = (),
     allow_all_paths: bool = False,
@@ -401,7 +377,6 @@ async def crawl_site(
         output_dir,
         max_depth=max_depth,
         max_pages=max_pages,
-        method=method,
         include_patterns=include_patterns,
         exclude_patterns=exclude_patterns,
         allow_all_paths=allow_all_paths,
@@ -412,7 +387,6 @@ async def crawl_site(
     filter_chain = build_filter_chain(config)
     run_config = CrawlerRunConfig(
         stream=False,
-        target_elements=["main"],
         deep_crawl_strategy=_LinkFollowingBFSStrategy(
             max_depth=config.max_depth,
             max_pages=config.max_pages,
@@ -459,13 +433,7 @@ async def crawl_site(
     for res in triaged.pages:
         final_url = _final_url(res)
         relpath = url_to_relpath[final_url]
-        crawl4ai_md = str(res.markdown) if res.markdown is not None else None
-        raw_md = extract_markdown(
-            res.html or "",
-            url=final_url,
-            method=config.method,
-            crawl4ai_markdown=crawl4ai_md,
-        )
+        raw_md = extract_markdown(res.html or "", url=final_url)
         fallback_title = str((res.metadata or {}).get("title") or "")
         meta = extract_page_metadata(res.html or "", raw_md, fallback_title=fallback_title)
         rewritten = rewrite_markdown_links(raw_md, final_url, relpath, link_lookup)
@@ -516,7 +484,6 @@ def crawl_site_sync(
     *,
     max_depth: int = 2,
     max_pages: int = 100,
-    method: ExtractorType = "dom-markdownify",
     include_patterns: Sequence[str] = (),
     exclude_patterns: Sequence[str] = (),
     allow_all_paths: bool = False,
@@ -531,7 +498,6 @@ def crawl_site_sync(
         output_dir,
         max_depth=max_depth,
         max_pages=max_pages,
-        method=method,
         include_patterns=include_patterns,
         exclude_patterns=exclude_patterns,
         allow_all_paths=allow_all_paths,
