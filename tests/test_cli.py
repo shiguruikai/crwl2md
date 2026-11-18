@@ -99,12 +99,15 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
             *("--max-depth", "3"),
             *("--include", "/docs/**"),
             "--respect-robots",
+            *("--delay", "1.5"),
+            *("--concurrency", "2"),
         ]
     )
 
     captured = capsys.readouterr()
     assert exit_code == 0
     assert (received[0].max_depth, received[0].include_patterns, received[0].respect_robots) == (3, ["/docs/**"], True)
+    assert (received[0].delay, received[0].concurrency) == (1.5, 2)
     assert "Crawled 2 pages and generated 1 index files" in captured.out
     assert "Crawl scope: /docs/**" in captured.err
     assert "  - https://example.com/docs/gone: HTTP 404" in captured.err
@@ -118,7 +121,9 @@ def test_cli_crawl_reports_invalid_regex_pattern(tmp_path: Path, capsys: pytest.
     assert "\nError: " in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("option", [["--max-depth", "-1"], ["--max-pages", "0"]])
+@pytest.mark.parametrize(
+    "option", [["--max-depth", "-1"], ["--max-pages", "0"], ["--delay", "-0.5"], ["--concurrency", "0"]]
+)
 def test_cli_crawl_rejects_out_of_range_limits(tmp_path: Path, option: list[str], capsys: pytest.CaptureFixture[str]):
     with pytest.raises(SystemExit) as exc_info:
         main(["crawl", "https://example.com/docs/", "-o", str(tmp_path), *option])

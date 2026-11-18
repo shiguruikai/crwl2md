@@ -4,7 +4,7 @@ import argparse
 import asyncio
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import httpx
@@ -14,9 +14,9 @@ from web2md.crawler import CrawlConfig, convert_single, crawl_site, describe_cra
 from web2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
 
 
-def _int_at_least(minimum: int):
-    def parse(value: str) -> int:
-        number = int(value)
+def _at_least[NumberT: (int, float)](minimum: NumberT) -> Callable[[str], NumberT]:
+    def parse(value: str) -> NumberT:
+        number = type(minimum)(value)
         if number < minimum:
             raise argparse.ArgumentTypeError(f"must be {minimum} or greater")
         return number
@@ -67,10 +67,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output directory for Markdown files and index.md.",
     )
     crawl_parser.add_argument(
-        "--max-depth", type=_int_at_least(0), default=2, metavar="N", help="Maximum crawl depth (default: 2)."
+        "--max-depth", type=_at_least(0), default=2, metavar="N", help="Maximum crawl depth (default: 2)."
     )
     crawl_parser.add_argument(
-        "--max-pages", type=_int_at_least(1), default=100, metavar="N", help="Maximum number of pages (default: 100)."
+        "--max-pages", type=_at_least(1), default=100, metavar="N", help="Maximum number of pages (default: 100)."
     )
     crawl_parser.add_argument(
         "--include",
@@ -88,6 +88,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-all-paths",
         action="store_true",
         help="Allow crawling any path on the seed domain instead of restricting to the seed URL's directory.",
+    )
+    crawl_parser.add_argument(
+        "--delay",
+        type=_at_least(0.0),
+        default=0.1,
+        metavar="SECONDS",
+        help="Seconds to wait before each batch of concurrent requests (default: 0.1).",
+    )
+    crawl_parser.add_argument(
+        "--concurrency",
+        type=_at_least(1),
+        default=5,
+        metavar="N",
+        help="Maximum number of pages fetched at the same time (default: 5).",
     )
     crawl_parser.add_argument(
         "--respect-robots",
@@ -137,6 +151,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 exclude_patterns=args.exclude,
                 allow_all_paths=args.allow_all_paths,
                 respect_robots=args.respect_robots,
+                delay=args.delay,
+                concurrency=args.concurrency,
                 frontmatter=args.frontmatter or frontmatter_fields is not None,
                 frontmatter_fields=frontmatter_fields,
                 verbose=args.verbose,

@@ -325,6 +325,15 @@ async def test_crawl_site_checks_robots_txt_only_on_request(tmp_path: Path, resp
     assert fake_crawler.run_config.check_robots_txt is respect_robots
 
 
+async def test_crawl_site_passes_pacing_options_to_crawl4ai(tmp_path: Path):
+    fake_crawler = _FakeCrawler([CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)])
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", delay=2.0, concurrency=1)
+
+    await crawl_site(config, crawler=fake_crawler)
+
+    assert (fake_crawler.run_config.mean_delay, fake_crawler.run_config.semaphore_count) == (2.0, 1)
+
+
 def test_crawl_site_sync_runs_crawl_without_event_loop(tmp_path: Path):
     fake_crawler = _FakeCrawler(
         [

@@ -62,6 +62,10 @@ class CrawlConfig(BaseModel):
     exclude_patterns: list[str] = Field(default_factory=list)
     allow_all_paths: bool = False
     respect_robots: bool = False
+    # Seconds to wait before each batch of up to `concurrency` requests. Crawl4AI adds up to 0.3 s of jitter
+    # and lengthens the wait by itself after HTTP 429 / 503 responses.
+    delay: float = Field(default=0.1, ge=0)
+    concurrency: int = Field(default=5, ge=1)
     frontmatter: bool = False
     frontmatter_fields: list[FrontmatterField] | None = None
     verbose: bool = False
@@ -372,6 +376,8 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
         scraping_strategy=LXMLWebScrapingStrategy(),
         max_retries=1,
         check_robots_txt=config.respect_robots,
+        mean_delay=config.delay,
+        semaphore_count=config.concurrency,
         verbose=config.verbose,
     )
 

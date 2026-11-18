@@ -76,7 +76,7 @@ options:
 ### `web2md crawl --help`
 
 ```text
-usage: web2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--respect-robots] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
+usage: web2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
 
 positional arguments:
   url                   Seed URL to start crawling from.
@@ -89,6 +89,8 @@ options:
   --include INCLUDE     URL pattern to crawl: glob or regex, repeatable. Replaces the default seed-directory scope.
   --exclude EXCLUDE     URL pattern to skip: glob or regex, repeatable.
   --allow-all-paths     Allow crawling any path on the seed domain instead of restricting to the seed URL's directory.
+  --delay SECONDS       Seconds to wait before each batch of concurrent requests (default: 0.1).
+  --concurrency N       Maximum number of pages fetched at the same time (default: 5).
   --respect-robots      Skip pages that the site's robots.txt disallows.
   --frontmatter         Prepend YAML frontmatter to output Markdown.
   --frontmatter-fields FRONTMATTER_FIELDS
@@ -192,6 +194,7 @@ output/
 ## 注意と既知の制限
 
 - 既定では robots.txt を確認しません。公開サイトをクロールする場合は、サイトの利用規約を確認し、必要に応じて `--respect-robots` を指定してください。
+- 既定では、最大5ページを同時に取得し、取得のまとまりごとに 0.1〜0.4 秒待ちます。失敗の一覧に `HTTP 429` が出る場合は、`--delay 2 --concurrency 1` のように間隔を空けて再実行してください。429 または 503 を受け取ると、以降の待ち時間は自動的に延びますが、拒否されたページを待ってから取り直すことはしません。
 - `convert` は HTTP で取得した HTML をそのまま変換します。JavaScript で本文を描画するページは、ブラウザで描画してから取得する `crawl`（`--max-depth 0` で1ページだけ取得できます）を使ってください。
 - 起点 URL が別のホストやディレクトリへリダイレクトされる場合、範囲はリダイレクト前の URL から決まるため、起点ページしか取得できません。リダイレクト先の URL を起点に指定してください。
 - インライン SVG で描かれた図は出力されません。
