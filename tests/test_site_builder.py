@@ -98,6 +98,22 @@ def test_compute_relative_paths_separates_paths_that_differ_only_by_case():
     assert mapping == {"https://example.com/docs/API": "API.md", "https://example.com/docs/api": "api-2.md"}
 
 
+def test_compute_relative_paths_decodes_percent_encoded_segments():
+    urls = [
+        "https://example.com/docs/%E3%81%AF%E3%81%98%E3%82%81%E3%81%AB",
+        "https://example.com/docs/release%20notes/v1%2F2",
+        "https://example.com/docs/%2e%2e/%2e%2e/escape",
+    ]
+
+    mapping = compute_relative_paths(urls, "https://example.com/docs/")
+
+    assert mapping == {
+        "https://example.com/docs/%E3%81%AF%E3%81%98%E3%82%81%E3%81%AB": "はじめに.md",
+        "https://example.com/docs/release%20notes/v1%2F2": "release notes/v1_2.md",
+        "https://example.com/docs/%2e%2e/%2e%2e/escape": "page/page/escape.md",
+    }
+
+
 def test_compute_relative_paths_separates_pages_that_differ_only_by_query():
     urls = ["https://example.com/docs/list?page=1", "https://example.com/docs/list?page=2"]
 
@@ -167,6 +183,29 @@ def test_rewrite_markdown_links_matches_pages_regardless_of_html_extension():
     assert rewritten == "[Intro](intro.md) and [API](api.md)"
 
 
+def test_rewrite_markdown_links_encodes_characters_that_would_break_the_link():
+    link_lookup = build_link_lookup(
+        {
+            "https://example.com/docs/%E3%81%AF%E3%81%98%E3%82%81%E3%81%AB": "はじめに.md",
+            "https://example.com/docs/release%20notes/C%23%20(new)": "release notes/C# (new).md",
+        }
+    )
+    markdown = "[Intro](/docs/%E3%81%AF%E3%81%98%E3%82%81%E3%81%AB) and [Notes](/docs/release%20notes/C%23%20(new)#top)"
+
+    rewritten = rewrite_markdown_links(markdown, "https://example.com/docs/guide", "guide.md", link_lookup)
+
+    assert rewritten == "[Intro](はじめに.md) and [Notes](release%20notes/C%23%20%28new%29.md#top)"
+
+
+def test_rewrite_markdown_links_handles_parentheses_in_link_destinations():
+    link_lookup = build_link_lookup({"https://example.org/wiki/Python_(language)": "Python_(language).md"})
+    markdown = "See [Python](/wiki/Python_(language)) and [Ruby](/wiki/Ruby_(language))."
+
+    rewritten = rewrite_markdown_links(markdown, "https://example.org/wiki/Main", "Main.md", link_lookup)
+
+    assert rewritten == "See [Python](Python_%28language%29.md) and [Ruby](https://example.org/wiki/Ruby_(language))."
+
+
 def test_rewrite_markdown_links_absolutizes_relative_links_without_lookup():
     markdown = "[Next](../next) and [Top](/)"
 
@@ -232,6 +271,23 @@ def test_generate_toc_files_escapes_brackets_in_link_labels():
     tocs = generate_toc_files(pages)
 
     assert r"- [\[Deprecated\] List\[T\]](list.md) - Old API." in tocs["index.md"]
+
+
+def test_generate_toc_files_encodes_spaces_in_link_targets():
+    pages = [
+        CrawledPageDoc(
+            url="https://docs.example.com/docs/release%20notes/v1",
+            relpath="release notes/first release.md",
+            title="First release",
+            description="Notes.",
+            markdown="# First release\n",
+        ),
+    ]
+
+    tocs = generate_toc_files(pages)
+
+    assert "- [Release notes](release%20notes/index.md)" in tocs["index.md"]
+    assert "- [First release](first%20release.md) - Notes." in tocs["release notes/index.md"]
 
 
 def test_format_frontmatter_escapes_special_characters_and_includes_utc_timestamp():

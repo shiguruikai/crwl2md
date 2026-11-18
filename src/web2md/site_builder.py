@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from itertools import takewhile
 from typing import Literal, cast
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, unquote, urljoin, urlparse
 
 from pydantic import BaseModel
 
@@ -19,8 +19,12 @@ FrontmatterField = Literal["title", "description", "source", "timestamp"]
 FRONTMATTER_FIELDS: tuple[FrontmatterField, ...] = ("title", "description", "source", "timestamp")
 _FRONTMATTER_FIELD_SET = frozenset(FRONTMATTER_FIELDS)
 
-_UNSAFE_SEGMENT_RE = re.compile(r'[<>:"|?*\x00-\x1f\\]')
-_MD_INLINE_LINK_RE = re.compile(r'(!?)\[((?:[^\[\]]|\[[^\]]*\])*)\]\(([^)\s]+)(\s+"[^"]*")?\)')
+# Includes "/" because a percent-decoded segment ("a%2Fb") must stay a single path component.
+_UNSAFE_SEGMENT_RE = re.compile(r'[<>:"|?*\x00-\x1f\\/]')
+# Characters that are legal in file names but would end or alter a Markdown link destination.
+_LINK_TARGET_UNSAFE_RE = re.compile(r"[\s%#()]")
+# The destination may contain one level of balanced parentheses, as in `/wiki/Python_(language)`.
+_MD_INLINE_LINK_RE = re.compile(r'(!?)\[((?:[^\[\]]|\[[^\]]*\])*)\]\(((?:[^()\s]|\([^()\s]*\))+)(\s+"[^"]*")?\)')
 _HTML_IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=")([^"]+)("[^>]*>)', re.IGNORECASE)
 
 
@@ -89,7 +93,10 @@ def compute_relative_paths(urls: Sequence[str], seed_url: str) -> dict[str, str]
     seed_host = urlparse(normalize_url_key(seed_url)).netloc
     multi_host = len(hosts) > 1 or (bool(seed_host) and hosts != {seed_host})
 
-    segs_by_key = {key: [seg for seg in parsed_by_key[key].path.strip("/").split("/") if seg] for key in unique_keys}
+    # Segments are percent-decoded so that non-ASCII pages get readable file names ("はじめに.md").
+    segs_by_key = {
+        key: [unquote(seg) for seg in parsed_by_key[key].path.strip("/").split("/") if seg] for key in unique_keys
+    }
 
     # URLs that have descendant pages become directory overviews (overview.md) to avoid colliding with generated index.md.
     ancestor_dirs = {
@@ -137,6 +144,10 @@ def compute_relative_paths(urls: Sequence[str], seed_url: str) -> dict[str, str]
             result[orig_url] = unique_relpath
 
     return result
+
+
+def _link_target(relpath: str) -> str:
+    return _LINK_TARGET_UNSAFE_RE.sub(lambda match: quote(match.group()), relpath)
 
 
 def _without_doc_extension(url_key: str) -> str:
@@ -191,7 +202,7 @@ def rewrite_markdown_links(
         if target_relpath is not None:
             if target_relpath == source_relpath and frag:
                 return f"[{text}]({frag}{title_part})"
-            rel = posixpath.relpath(target_relpath, start=source_dir)
+            rel = _link_target(posixpath.relpath(target_relpath, start=source_dir))
             return f"[{text}]({rel}{frag}{title_part})"
 
         if not raw_href.startswith(("http://", "https://")):
@@ -336,7 +347,7 @@ def generate_toc_files(
                     if sub_overview is not None and sub_overview.description != sub_title
                     else ""
                 )
-                lines.append(f"- [{_link_label(sub_title)}]({sub_name}/index.md){sub_desc}")
+                lines.append(f"- [{_link_label(sub_title)}]({_link_target(sub_name)}/index.md){sub_desc}")
             lines.append("")
 
         if direct_pages:
@@ -344,7 +355,7 @@ def generate_toc_files(
             for page in direct_pages:
                 filename = posixpath.basename(page.relpath)
                 desc_part = f" - {page.description}" if page.description and page.description != page.title else ""
-                lines.append(f"- [{_link_label(page.title)}]({filename}){desc_part}")
+                lines.append(f"- [{_link_label(page.title)}]({_link_target(filename)}){desc_part}")
             lines.append("")
 
         toc_relpath = f"{current_dir}/index.md" if current_dir else "index.md"
