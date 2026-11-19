@@ -7,12 +7,21 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-import httpx
-from playwright.async_api import Error as PlaywrightError
-
 from web2md import __version__
 from web2md.crawler import CrawlConfig, convert_single, crawl_site, describe_crawl_scope, install_browser
 from web2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
+
+
+def _is_expected_cli_error(exc: BaseException) -> bool:
+    if isinstance(exc, (OSError, ValueError, RuntimeError, re.error)):
+        return True
+    # Avoid importing httpx and playwright just to check exception types when they were never loaded.
+    for mod_name, attr in (("httpx", "HTTPError"), ("playwright.async_api", "Error")):
+        mod = sys.modules.get(mod_name)
+        err_cls = getattr(mod, attr, None)
+        if isinstance(err_cls, type) and isinstance(exc, err_cls):
+            return True
+    return False
 
 
 def _at_least[NumberT: (int, float)](minimum: NumberT) -> Callable[[str], NumberT]:
@@ -193,7 +202,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     except KeyboardInterrupt:
         return 130
-    except (OSError, ValueError, RuntimeError, re.error, httpx.HTTPError, PlaywrightError) as exc:
+    except Exception as exc:
+        if not _is_expected_cli_error(exc):
+            raise
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 

@@ -22,7 +22,7 @@ from web2md import (
     install_browser,
 )
 from web2md.crawler import (
-    _LinkFollowingBFSStrategy,
+    _link_following_bfs_strategy_cls,
     _resolve_output_path,
     build_filter_chain,
     compile_url_pattern,
@@ -398,7 +398,7 @@ def test_describe_crawl_scope(tmp_path: Path, options: dict[str, Any], expected:
 
 async def test_bfs_strategy_follows_links_on_hosts_without_a_dot(tmp_path: Path):
     config = CrawlConfig(url="http://localhost:3000/docs/", output_dir=tmp_path / "out")
-    strategy = _LinkFollowingBFSStrategy(max_depth=1, filter_chain=build_filter_chain(config))
+    strategy = _link_following_bfs_strategy_cls()(max_depth=1, filter_chain=build_filter_chain(config))
 
     in_scope = await strategy.can_process_url("http://localhost:3000/docs/guide", 1)
     out_of_scope = await strategy.can_process_url("http://localhost:3000/blog/post", 1)
@@ -456,7 +456,7 @@ async def test_crawl_site_disables_image_loading_in_browser_config(tmp_path: Pat
         captured.append(config)
         return FakeBrowserCrawler(results)
 
-    monkeypatch.setattr("web2md.crawler.AsyncWebCrawler", fake_crawler_factory)
+    monkeypatch.setattr("web2md.crawler._create_browser_crawler", fake_crawler_factory)
     monkeypatch.setenv("CRAWL4AI_NO_CLOUD_NOTICE", "1")
     config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
 
@@ -479,7 +479,7 @@ async def test_crawl_site_hides_crawl4ai_banner_unless_user_set_the_variable(
             return None
 
     results = [CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)]
-    monkeypatch.setattr("web2md.crawler.AsyncWebCrawler", lambda config: FakeBrowserCrawler(results))
+    monkeypatch.setattr("web2md.crawler._create_browser_crawler", lambda config: FakeBrowserCrawler(results))
     # setenv first so that monkeypatch restores the original state even though crawl_site sets the variable.
     monkeypatch.setenv("CRAWL4AI_NO_CLOUD_NOTICE", preset or "")
     if preset is None:
@@ -499,7 +499,7 @@ def _fail_browser_launch(monkeypatch: pytest.MonkeyPatch, message: str) -> None:
         async def __aexit__(self, *exc_info: object) -> None:
             return None
 
-    monkeypatch.setattr("web2md.crawler.AsyncWebCrawler", lambda config: UnlaunchableCrawler())
+    monkeypatch.setattr("web2md.crawler._create_browser_crawler", lambda config: UnlaunchableCrawler())
     monkeypatch.setenv("CRAWL4AI_NO_CLOUD_NOTICE", "1")
 
 

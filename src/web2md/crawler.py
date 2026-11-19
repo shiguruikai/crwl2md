@@ -9,26 +9,18 @@ import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import cache
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-import httpx
 from bs4.dammit import UnicodeDammit
-from crawl4ai import (
-    AsyncWebCrawler,
-    BrowserConfig,
-    CrawlerRunConfig,
-    CrawlResult,
-    DomainFilter,
-    FilterChain,
-    URLPatternFilter,
-)
-from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
-from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
-from playwright.async_api import Error as PlaywrightError
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from crawl4ai import BrowserConfig, CrawlResult, FilterChain
+    from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 
 from web2md.extractors import (
     extract_base_url,
@@ -125,6 +117,8 @@ def _decode_html(data: bytes, declared_encoding: str | None = None) -> str:
 
 
 def _flatten_crawl_results(raw_result: Any) -> list[CrawlResult]:
+    from crawl4ai import CrawlResult
+
     # CrawlResult is a Pydantic BaseModel (iterable of field tuples), so check it before Iterable,
     # and unwrap CrawlResultContainer objects yielded by Crawl4AI deep crawling.
     if isinstance(raw_result, CrawlResult):
@@ -141,6 +135,8 @@ def _flatten_crawl_results(raw_result: Any) -> list[CrawlResult]:
 
 def fetch_html(url: str, timeout: float = 30.0) -> tuple[str, str]:
     """Fetch HTML and the resolved final URL over HTTP(S)."""
+    import httpx
+
     response = httpx.get(url, follow_redirects=True, timeout=timeout)
     response.raise_for_status()
     return _decode_html(response.content, response.charset_encoding), str(response.url)
@@ -294,6 +290,8 @@ def _allowed_domains(config: CrawlConfig) -> list[str]:
 
 def build_filter_chain(config: CrawlConfig) -> FilterChain:
     """Build a Crawl4AI `FilterChain` enforcing domain, asset, and path-scope rules."""
+    from crawl4ai import DomainFilter, FilterChain, URLPatternFilter
+
     filters: list[Any] = []
 
     allowed_domains = _allowed_domains(config)
@@ -318,14 +316,26 @@ def build_filter_chain(config: CrawlConfig) -> FilterChain:
     return FilterChain(filters)
 
 
-class _LinkFollowingBFSStrategy(BFSDeepCrawlStrategy):
-    """BFS strategy without Crawl4AI's "host must contain a dot" rule, which rejects `localhost` and intranet hosts."""
+@cache
+def _link_following_bfs_strategy_cls() -> type[BFSDeepCrawlStrategy]:
+    from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 
-    async def can_process_url(self, url: str, depth: int) -> bool:
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https") or not parsed.netloc:
-            return False
-        return depth == 0 or await self.filter_chain.apply(url)
+    class _LinkFollowingBFSStrategy(BFSDeepCrawlStrategy):
+        """BFS strategy without Crawl4AI's "host must contain a dot" rule, which rejects `localhost` and intranet hosts."""
+
+        async def can_process_url(self, url: str, depth: int) -> bool:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                return False
+            return depth == 0 or await self.filter_chain.apply(url)
+
+    return _LinkFollowingBFSStrategy
+
+
+def _create_browser_crawler(browser_config: BrowserConfig) -> Any:
+    from crawl4ai import AsyncWebCrawler
+
+    return AsyncWebCrawler(config=browser_config)
 
 
 @dataclass
@@ -406,11 +416,16 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
 
     `crawler` replaces the Crawl4AI browser crawler and exists for tests.
     """
+    from crawl4ai import BrowserConfig, CrawlerRunConfig
+    from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
+    from playwright.async_api import Error as PlaywrightError
+
     filter_chain = build_filter_chain(config)
     include_external = len(_allowed_domains(config)) > 1
+    strategy_cls = _link_following_bfs_strategy_cls()
     run_config = CrawlerRunConfig(
         stream=False,
-        deep_crawl_strategy=_LinkFollowingBFSStrategy(
+        deep_crawl_strategy=strategy_cls(
             max_depth=config.max_depth,
             max_pages=config.max_pages,
             filter_chain=filter_chain,
@@ -432,7 +447,7 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
         # text_mode skips image requests since web2md only extracts HTML and keeps image URLs.
         browser_config = BrowserConfig(headless=True, text_mode=True, verbose=config.verbose)
         try:
-            async with AsyncWebCrawler(config=browser_config) as active_crawler:
+            async with _create_browser_crawler(browser_config) as active_crawler:
                 raw_results = await active_crawler.arun(config.url, config=run_config)
         except PlaywrightError as exc:
             if "Executable doesn't exist" not in str(exc):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -163,3 +165,15 @@ def test_cli_version_prints_package_version(capsys: pytest.CaptureFixture[str]):
 
     assert exc_info.value.code == 0
     assert capsys.readouterr().out.strip() == f"web2md {web2md.__version__}"
+
+
+def test_importing_package_and_cli_defers_heavy_crawler_dependencies():
+    code = (
+        "import sys, web2md, web2md.cli; "
+        "loaded = [m for m in ('crawl4ai', 'playwright', 'httpx') if m in sys.modules]; "
+        "assert not loaded, f'eagerly imported: {loaded}'"
+    )
+
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+
+    assert result.returncode == 0, result.stderr
