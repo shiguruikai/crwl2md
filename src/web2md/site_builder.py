@@ -24,7 +24,9 @@ _UNSAFE_SEGMENT_RE = re.compile(r'[<>:"|?*\x00-\x1f\\/]')
 # Characters that are legal in file names but would end or alter a Markdown link destination.
 _LINK_TARGET_UNSAFE_RE = re.compile(r"[\s%#()]")
 # The destination may contain one level of balanced parentheses, as in `/wiki/Python_(language)`.
-_MD_INLINE_LINK_RE = re.compile(r'(!?)\[((?:[^\[\]]|\[[^\]]*\])*)\]\(((?:[^()\s]|\([^()\s]*\))+)(\s+"[^"]*")?\)')
+_MD_INLINE_LINK_RE = re.compile(
+    r'(!?)\[((?:[^\[\]]|\[[^\]]*\])*)\]\(((?:[^()\s]|\([^()\s]*\))+)(\s+(?:"[^"]*"|\'[^\']*\'))?\)'
+)
 _HTML_IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\bsrc=")([^"]+)("[^>]*>)', re.IGNORECASE)
 
 

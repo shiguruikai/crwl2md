@@ -211,6 +211,15 @@ def test_rewrite_markdown_links_handles_parentheses_in_link_destinations():
     assert rewritten == "See [Python](Python_%28language%29.md) and [Ruby](https://example.org/wiki/Ruby_(language))."
 
 
+def test_rewrite_markdown_links_preserves_double_and_single_quoted_titles():
+    link_lookup = build_link_lookup({"https://docs.example.com/docs/b": "b.md"})
+    markdown = """[B1](/docs/b "Double") and [B2](/docs/b 'Single')"""
+
+    rewritten = rewrite_markdown_links(markdown, "https://docs.example.com/docs/a", "a.md", link_lookup)
+
+    assert rewritten == """[B1](b.md "Double") and [B2](b.md 'Single')"""
+
+
 def test_rewrite_markdown_links_absolutizes_relative_links_without_lookup():
     markdown = "[Next](../next) and [Top](/)"
 
