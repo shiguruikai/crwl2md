@@ -229,3 +229,11 @@ output/
 - 起点 URL が別のホストやディレクトリへリダイレクトされる場合、範囲はリダイレクト前の URL から決まるため、起点ページしか取得できません。このときは終了時にリダイレクト先の URL を警告として表示するので、その URL を起点に指定して再実行してください。
 - インライン SVG で描かれた図は出力されません。
 - 出力先にファイルが既に存在する場合は上書きを防ぐため終了します。既存の出力先へ再クロールするときは `--force` を指定してください。なお、`--force` を指定しても前回のクロールで作られ今回は作られなかったファイルは削除しません。
+
+## ライセンス
+
+MIT License（[LICENSE](LICENSE)）
+
+## 謝辞
+
+This product includes software developed by UncleCode (<https://x.com/unclecode>) as part of the Crawl4AI project (<https://github.com/unclecode/crawl4ai>).
