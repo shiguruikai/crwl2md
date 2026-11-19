@@ -214,11 +214,11 @@ async def _arun_with_browser(url: str, run_config: Any, *, verbose: bool = False
 
 async def _fetch_html_with_browser(url: str, *, crawler: Any | None = None) -> tuple[str, str]:
     from crawl4ai import CrawlerRunConfig
-    from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
 
+    # `prefetch=True` returns raw HTML and links without running Crawl4AI's own HTML cleaner or html2text converter.
     run_config = CrawlerRunConfig(
         stream=False,
-        scraping_strategy=LXMLWebScrapingStrategy(),
+        prefetch=True,
         wait_for=_CONTENT_READY_JS,
         wait_for_timeout=_CONTENT_WAIT_TIMEOUT_MS,
         max_retries=1,
@@ -230,9 +230,10 @@ async def _fetch_html_with_browser(url: str, *, crawler: Any | None = None) -> t
         raise RuntimeError(f"Failed to fetch {url}: no result returned by crawler")
     res = results[0]
     final_url = _final_url(res)
-    http_error = res.status_code is not None and res.status_code >= 400
+    status_code = _effective_status_code(res)
+    http_error = status_code is not None and status_code >= 400
     if not res.success or http_error:
-        reason = res.error_message or (f"HTTP {res.status_code}" if http_error else "Unknown error")
+        reason = res.error_message or (f"HTTP {status_code}" if http_error else "Unknown error")
         raise RuntimeError(f"Failed to fetch {final_url}: {reason}")
     return res.html or "", final_url
 
@@ -491,6 +492,12 @@ def _final_url(result: CrawlResult) -> str:
     return result.redirected_url or result.url
 
 
+def _effective_status_code(result: CrawlResult) -> int | None:
+    # Crawl4AI stores the first redirect hop's status (301/302) in `status_code` and the final page's status in
+    # `redirected_status_code`.
+    return result.redirected_status_code if result.redirected_status_code is not None else result.status_code
+
+
 async def _triage_results(results: Iterable[CrawlResult], seed_url: str, filter_chain: FilterChain) -> _TriagedResults:
     triaged = _TriagedResults()
     seed_key = normalize_url_key(seed_url)
@@ -498,11 +505,12 @@ async def _triage_results(results: Iterable[CrawlResult], seed_url: str, filter_
 
     for res in results:
         final_url = _final_url(res)
+        status_code = _effective_status_code(res)
         # Crawl4AI reports HTTP error pages (404, 500, ...) as successful fetches.
-        http_error = res.status_code is not None and res.status_code >= 400
+        http_error = status_code is not None and status_code >= 400
         if not res.success or http_error:
-            reason = res.error_message or (f"HTTP {res.status_code}" if http_error else "Unknown error")
-            triaged.failed.append(FailedPage(url=final_url, status_code=res.status_code, reason=reason))
+            reason = res.error_message or (f"HTTP {status_code}" if http_error else "Unknown error")
+            triaged.failed.append(FailedPage(url=final_url, status_code=status_code, reason=reason))
             continue
 
         # Filters only saw the requested URL; redirects and ".." links can still end up outside the crawl scope.
@@ -613,7 +621,6 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     """
     _ensure_output_dir_writable(config.output_dir, force=config.force)
     from crawl4ai import CrawlerRunConfig
-    from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
 
     filter_chain = build_filter_chain(config)
     include_external = len(_allowed_domains(config)) > 1
@@ -621,13 +628,13 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     effective_max_depth = config.max_depth if config.max_depth is not None else sys.maxsize
     run_config = CrawlerRunConfig(
         stream=False,
+        prefetch=True,
         deep_crawl_strategy=strategy_cls(
             max_depth=effective_max_depth,
             max_pages=config.max_pages,
             filter_chain=filter_chain,
             include_external=include_external,
         ),
-        scraping_strategy=LXMLWebScrapingStrategy(),
         wait_for=_CONTENT_READY_JS,
         wait_for_timeout=_CONTENT_WAIT_TIMEOUT_MS,
         max_retries=1,
@@ -645,20 +652,19 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     extracted: list[_ExtractedPage] = []
     for res in triaged.pages:
         final_url = _final_url(res)
+        status_code = _effective_status_code(res)
         html = res.html or ""
         try:
             raw_md = extract_markdown(html, url=final_url)
             if not raw_md.strip():
-                triaged.failed.append(
-                    FailedPage(url=final_url, status_code=res.status_code, reason="Empty page content")
-                )
+                triaged.failed.append(FailedPage(url=final_url, status_code=status_code, reason="Empty page content"))
                 continue
             fallback_title = str((res.metadata or {}).get("title") or "")
             meta = extract_page_metadata(html, raw_md, fallback_title=fallback_title)
             link_base_url = extract_base_url(html, final_url)
         except Exception as exc:
             triaged.failed.append(
-                FailedPage(url=final_url, status_code=res.status_code, reason=f"Conversion failed: {exc}")
+                FailedPage(url=final_url, status_code=status_code, reason=f"Conversion failed: {exc}")
             )
             continue
         extracted.append(
@@ -726,7 +732,7 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
             triaged.failed.append(
                 FailedPage(
                     url=item.final_url,
-                    status_code=item.result.status_code,
+                    status_code=_effective_status_code(item.result),
                     reason=f"Conversion failed: {exc}",
                 )
             )

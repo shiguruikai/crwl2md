@@ -139,6 +139,14 @@ async def test_crawl_site_reports_http_error_pages_as_failed(tmp_path: Path):
     fake_results = [
         CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True, status_code=200),
         CrawlResult(url="https://example.com/docs/gone", html=_page("Not Found"), success=True, status_code=404),
+        CrawlResult(
+            url="https://example.com/docs/moved-to-404",
+            redirected_url="https://example.com/docs/missing",
+            html=_page("Not Found"),
+            success=True,
+            status_code=302,
+            redirected_status_code=404,
+        ),
     ]
     config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
 
@@ -146,9 +154,11 @@ async def test_crawl_site_reports_http_error_pages_as_failed(tmp_path: Path):
 
     assert summary.page_count == 1
     assert [(page.url, page.status_code, page.reason) for page in summary.failed_pages] == [
-        ("https://example.com/docs/gone", 404, "HTTP 404")
+        ("https://example.com/docs/gone", 404, "HTTP 404"),
+        ("https://example.com/docs/missing", 404, "HTTP 404"),
     ]
     assert not (tmp_path / "out" / "gone.md").exists()
+    assert not (tmp_path / "out" / "missing.md").exists()
 
 
 async def test_crawl_site_skips_pages_that_end_up_outside_the_scope(tmp_path: Path):
@@ -278,6 +288,7 @@ async def test_crawl_site_configures_content_ready_wait(tmp_path: Path):
 
     await crawl_site(config, crawler=fake_crawler)
 
+    assert fake_crawler.run_config.prefetch is True
     assert fake_crawler.run_config.wait_for.startswith("js:")
     assert fake_crawler.run_config.wait_for_timeout == 5000
 
@@ -820,6 +831,18 @@ async def test_convert_single_url_raises_on_http_error_or_empty_page():
     http_404 = _FakeCrawler(
         [CrawlResult(url="https://example.com/missing", html=_page("Not Found"), success=True, status_code=404)]
     )
+    redirected_404 = _FakeCrawler(
+        [
+            CrawlResult(
+                url="https://example.com/old",
+                redirected_url="https://example.com/missing",
+                html=_page("Not Found"),
+                success=True,
+                status_code=302,
+                redirected_status_code=404,
+            )
+        ]
+    )
     empty_page = _FakeCrawler(
         [
             CrawlResult(
@@ -833,6 +856,8 @@ async def test_convert_single_url_raises_on_http_error_or_empty_page():
 
     with pytest.raises(RuntimeError, match="HTTP 404"):
         await convert_single("https://example.com/missing", crawler=http_404)
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        await convert_single("https://example.com/old", crawler=redirected_404)
     with pytest.raises(RuntimeError, match="Empty page content"):
         await convert_single("https://example.com/empty", crawler=empty_page)
 

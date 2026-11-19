@@ -44,7 +44,7 @@
 | --- | --- |
 | `BFSDeepCrawlStrategy.can_process_url` が、ドットを含まないホスト（`localhost` など）の URL を不正として拒否する。 | `_LinkFollowingBFSStrategy` で判定を上書きしている。直っていればこのクラスは削除できる。 |
 | `DomainFilter` は、URL からポートを除いたホスト名を取り出して比較する。 | `allowed_domains` には `netloc` ではなく `hostname` を渡す。 |
-| HTTP 404 や 500 のページも `success=True` で返す。リダイレクトされたページの `status_code` は 302 のままになる。 | `_triage_results` で `status_code` が 400 以上の結果を失敗として扱う。 |
+| HTTP 404 や 500 のページも `success=True` で返す。リダイレクトされたページの `status_code` は最初の 301/302 のままになり、最終ページのステータスは `redirected_status_code` に入る。 | `_effective_status_code`（`redirected_status_code` を優先）が 400 以上の結果を失敗として扱う。 |
 | 約100バイト未満の HTML は、HTTP 200 でも「Near-empty content」としてボット遮断（`success=False`）と判定する。 | 対処していない。失敗の一覧に理由が表示される。 |
 | 429 を受け取ったページは、直後に1回だけ再試行される（`max_retries=1` の指定による）。待機はなく、`Retry-After` は無視される。内部の RateLimiter は以降のリクエスト間隔を延ばすだけで、拒否されたページを取り直さない。 | 対処していない。README で `--delay` と `--concurrency` による回避を案内している。 |
 | `mean_delay` の待機は、リクエストごとではなく、同時取得のまとまり（`semaphore_count` 件）ごとに入る。 | `--delay` のヘルプと README にその旨を書いている。 |
