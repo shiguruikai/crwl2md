@@ -541,6 +541,37 @@ def test_extract_markdown_honors_relative_base_href():
     assert '<img src="https://example.com/v2/img/a.png" alt="A">' in md
 
 
+def test_extract_markdown_escapes_pipes_and_preserves_pre_lines_in_tables():
+    html = """
+    <html><body><main>
+      <table>
+        <thead><tr><th>Type|Kind</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>a|b</td><td><code>x|y</code></td></tr>
+          <tr><td>multi</td><td><pre>line1\nline2</pre></td></tr>
+        </tbody>
+      </table>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html)
+
+    assert r"| Type\|Kind | Example |" in md
+    assert r"| a\|b | `x\|y` |" in md
+    assert "| multi | `line1`<br>`line2` |" in md
+
+
+def test_extract_markdown_preserves_sub_and_sup_tags_while_metadata_strips_them():
+    html = "<html><body><main><h1>H<sub>2</sub>O</h1><p>Compute x<sup>2</sup>.</p></main></body></html>"
+
+    md = extract_markdown(html)
+    meta = extract_page_metadata(html, md)
+
+    assert md == "# H<sub>2</sub>O\n\nCompute x<sup>2</sup>."
+    assert meta.title == "H2O"
+    assert meta.description == "Compute x2."
+
+
 def test_extract_page_metadata_ignores_site_name_heading_outside_main_content():
     html = """
     <html><head><title>Real Page Title | Site</title></head><body>

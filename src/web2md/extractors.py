@@ -112,6 +112,7 @@ _NON_LANGUAGE_NAMES = frozenset({"default", "none"})
 _HEADING_ANCHOR_TEXT_RE = re.compile(r"^[\u200b#\u00b6\uf0c1\s]*$")
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _HTML_IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+_SUB_SUP_TAG_RE = re.compile(r"</?(?:sub|sup)>", re.IGNORECASE)
 # Strips unescaped inline formatting tokens and word-boundary `_` emphasis while preserving `snake_case` identifiers.
 _MD_FORMAT_RE = re.compile(r"(?<!\\)[*`~]|(?<![\\\w])_|(?<!\\)_(?!\w)")
 # Matches the backslash escapes markdownify adds in front of literal punctuation.
@@ -120,6 +121,8 @@ _ATX_HEADING_RE = re.compile(r"^#{1,6}(?:\s|$)")
 _THEMATIC_BREAK_RE = re.compile(r"^(?:[-*_]\s*){3,}$")
 _ORDERED_LIST_ITEM_RE = re.compile(r"^\d+[.)]\s")
 _BACKTICK_FENCE_RUN_RE = re.compile(r"`{3,}")
+_BACKTICK_RUN_RE = re.compile(r"`+")
+_UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
 # Blank lines before the first code line of a <pre>; the first line's own indentation is kept.
 _PRE_LEADING_BLANK_RE = re.compile(r"^[ \n]*\n")
 _HEADING_TAGS: tuple[str, ...] = ("h1", "h2", "h3", "h4", "h5", "h6")
@@ -294,6 +297,13 @@ def _code_text(node: PageElement) -> str:
     return text
 
 
+def _inline_code(text: str) -> str:
+    longest = max((len(match.group(0)) for match in _BACKTICK_RUN_RE.finditer(text)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
+
+
 class _DomMarkdownConverter(MarkdownConverter):
     def __init__(self, *, base_url: str = "", **options: Any) -> None:
         super().__init__(**options)
@@ -303,10 +313,27 @@ class _DomMarkdownConverter(MarkdownConverter):
         code = _PRE_LEADING_BLANK_RE.sub("", _code_text(el)).rstrip(" \n")
         if not code:
             return ""
+        if "td" in parent_tags or "th" in parent_tags:
+            # Fenced code blocks break Markdown table rows, so render lines as inline code separated by <br>.
+            return "<br>".join(_inline_code(line) if line else "" for line in code.split("\n"))
         # Code that itself contains ``` needs a longer fence, otherwise the block would end early.
         longest_run = max((len(run) for run in _BACKTICK_FENCE_RUN_RE.findall(code)), default=2)
         fence = "`" * (longest_run + 1)
         return f"\n\n{fence}{_detect_code_language(el)}\n{code}\n{fence}\n\n"
+
+    def _convert_table_cell(self, el: Tag, text: str) -> str:
+        colspan = 1
+        raw_colspan = el.get("colspan")
+        if isinstance(raw_colspan, str) and raw_colspan.isdigit():
+            colspan = max(1, min(1000, int(raw_colspan)))
+        cell_text = _UNESCAPED_PIPE_RE.sub(r"\|", text.strip().replace("\n", " "))
+        return f" {cell_text}" + " |" * colspan
+
+    def convert_td(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        return self._convert_table_cell(el, text)
+
+    def convert_th(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        return self._convert_table_cell(el, text)
 
     def convert_img(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         src = _pick_image_src(el)
@@ -383,12 +410,15 @@ def extract_markdown(html: str, url: str = "") -> str:
         newline_style="BACKSLASH",
         # Disable <href> shortcut links so relative URLs are not misparsed as HTML tags and remain rewritable.
         autolinks=False,
+        sub_symbol="<sub>",
+        sup_symbol="<sup>",
     )
     return _postprocess_markdown(converter.convert(str(target)))
 
 
 def _to_plain_text(inline_markdown: str) -> str:
     text = _HTML_IMG_TAG_RE.sub("", inline_markdown)
+    text = _SUB_SUP_TAG_RE.sub("", text)
     text = _MD_LINK_RE.sub(r"\1", text)
     text = _MD_FORMAT_RE.sub("", text)
     text = _MD_ESCAPE_RE.sub(r"\1", text)
