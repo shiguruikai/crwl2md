@@ -6,6 +6,7 @@ import posixpath
 import re
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
 
 from crwl2md.extractors import (
     extract_base_url,
+    extract_first_paragraph_description,
     extract_markdown,
     extract_page_metadata,
     extract_sidebar_links,
@@ -675,6 +677,13 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
         raise RuntimeError(
             f"No pages were successfully crawled from {config.url}" + (f" ({reasons})" if reasons else "")
         )
+
+    # Many doc generators repeat a site-wide `<meta name="description">` on every page; fall back to each page's
+    # opening paragraph when a description appears on more than one crawled page.
+    description_counts = Counter(item.description for item in extracted if item.description)
+    for item in extracted:
+        if description_counts[item.description] >= 2:
+            item.description = extract_first_paragraph_description(item.raw_markdown) or item.title
 
     url_to_relpath = compute_relative_paths([page.final_url for page in extracted], config.url)
     link_lookup = build_link_lookup(url_to_relpath)

@@ -95,6 +95,46 @@ async def test_crawl_site_writes_markdown_and_toc(tmp_path: Path):
     assert toc_text.index("start.md") < toc_text.index("api.md")
 
 
+async def test_crawl_site_replaces_duplicate_site_wide_meta_descriptions_with_first_paragraph(tmp_path: Path):
+    def page_with_shared_meta(title: str, paragraph: str) -> str:
+        return (
+            "<html><head>"
+            f"<title>{title}</title>"
+            '<meta name="description" content="Site-wide slogan repeated on every page">'
+            f"</head><body><main><h1>{title}</h1>{paragraph}</main></body></html>"
+        )
+
+    fake_results = [
+        CrawlResult(
+            url="https://example.com/docs/intro",
+            html=page_with_shared_meta("Intro", "<p>Learn how to install the CLI.</p>"),
+            success=True,
+        ),
+        CrawlResult(
+            url="https://example.com/docs/proxy",
+            html=page_with_shared_meta("Proxy", "<p>Configure HTTP and SOCKS5 proxies.</p>"),
+            success=True,
+        ),
+        CrawlResult(
+            url="https://example.com/docs/empty-para",
+            html=page_with_shared_meta("Code Only", "<pre><code>crwl2md --help</code></pre>"),
+            success=True,
+        ),
+    ]
+    out_dir = tmp_path / "out"
+    config = CrawlConfig(url="https://example.com/docs/intro", output_dir=out_dir, frontmatter=True)
+
+    await crawl_site(config, crawler=_FakeCrawler(fake_results))
+
+    toc_text = (out_dir / "index.md").read_text(encoding="utf-8")
+    assert "Site-wide slogan repeated on every page" not in toc_text
+    assert "- [Intro](intro.md) - Learn how to install the CLI." in toc_text
+    assert "- [Proxy](proxy.md) - Configure HTTP and SOCKS5 proxies." in toc_text
+    assert "- [Code Only](empty-para.md)\n" in toc_text
+    assert 'description: "Learn how to install the CLI."' in (out_dir / "intro.md").read_text(encoding="utf-8")
+    assert 'description: "Configure HTTP and SOCKS5 proxies."' in (out_dir / "proxy.md").read_text(encoding="utf-8")
+
+
 async def test_crawl_site_reports_http_error_pages_as_failed(tmp_path: Path):
     fake_results = [
         CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True, status_code=200),

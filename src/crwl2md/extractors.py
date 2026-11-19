@@ -474,6 +474,13 @@ def _truncate_text(text: str, max_length: int = 150) -> str:
     return clean[: max_length - 3].rstrip() + "..."
 
 
+def extract_first_paragraph_description(markdown: str) -> str:
+    """Extract and truncate the first prose paragraph of `markdown` for use as a page description."""
+    if first_para := _extract_first_paragraph(markdown):
+        return _truncate_text(first_para)
+    return ""
+
+
 def extract_page_metadata(html: str, markdown: str, fallback_title: str = "") -> PageMetadata:
     """Extract page title and description from HTML metadata and rendered Markdown."""
     soup = BeautifulSoup(html, "lxml") if html.strip() else BeautifulSoup("", "lxml")
@@ -509,8 +516,8 @@ def extract_page_metadata(html: str, markdown: str, fallback_title: str = "") ->
             description = _truncate_text(candidate)
             break
 
-    if not description and (first_para := _extract_first_paragraph(markdown)):
-        description = _truncate_text(first_para)
+    if not description:
+        description = extract_first_paragraph_description(markdown)
 
     return PageMetadata(title=title, description=description or title)
 
