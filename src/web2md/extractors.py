@@ -361,6 +361,8 @@ def extract_markdown(html: str, url: str = "") -> str:
         bullets="-",
         # Trailing-space line breaks would be lost to whitespace cleanup, so <br> becomes a backslash break.
         newline_style="BACKSLASH",
+        # Disable <href> shortcut links so relative URLs are not misparsed as HTML tags and remain rewritable.
+        autolinks=False,
     )
     return _postprocess_markdown(converter.convert(str(target)))
 

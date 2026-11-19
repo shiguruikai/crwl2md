@@ -495,6 +495,22 @@ def test_extract_page_metadata_uses_first_paragraph_starting_with_emphasis_or_da
     assert dash_meta.description == "--verbose enables logging."
 
 
+def test_extract_markdown_keeps_standard_link_syntax_when_text_matches_href():
+    html = (
+        "<html><body><main>"
+        '<p>See <a href="guide.html">guide.html</a>, '
+        '<a href="/docs/api">/docs/api</a>, and '
+        '<a href="https://example.org/x">https://example.org/x</a>.</p>'
+        "</main></body></html>"
+    )
+
+    md = extract_markdown(html, url="https://example.org/docs/intro")
+
+    assert "[guide.html](guide.html)" in md
+    assert "[/docs/api](/docs/api)" in md
+    assert "[https://example.org/x](https://example.org/x)" in md
+
+
 def test_extract_page_metadata_ignores_site_name_heading_outside_main_content():
     html = """
     <html><head><title>Real Page Title | Site</title></head><body>
