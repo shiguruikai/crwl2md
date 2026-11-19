@@ -18,6 +18,7 @@ from web2md import (
     convert_single,
     crawl_site,
     crawl_site_sync,
+    extract_markdown,
     install_browser,
 )
 from web2md.crawler import (
@@ -215,6 +216,52 @@ async def test_crawl_site_localizes_links_to_pre_redirect_urls(tmp_path: Path):
     await crawl_site(config, crawler=_FakeCrawler(fake_results))
 
     assert "[Renamed page](new-name.md)" in (out_dir / "overview.md").read_text(encoding="utf-8")
+
+
+async def test_crawl_site_saves_other_pages_when_one_page_fails_conversion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    def flaky_extract(html: str, url: str = "") -> str:
+        if url.endswith("/bad"):
+            raise ValueError("malformed DOM")
+        return extract_markdown(html, url=url)
+
+    monkeypatch.setattr("web2md.crawler.extract_markdown", flaky_extract)
+    fake_results = [
+        CrawlResult(
+            url="https://example.com/docs/",
+            html=_page("Docs", '<p><a href="/docs/good">Good</a> and <a href="/docs/bad">Bad</a></p>'),
+            success=True,
+            status_code=200,
+        ),
+        CrawlResult(url="https://example.com/docs/good", html=_page("Good"), success=True, status_code=200),
+        CrawlResult(url="https://example.com/docs/bad", html=_page("Bad"), success=True, status_code=200),
+    ]
+    out_dir = tmp_path / "out"
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=out_dir)
+
+    summary = await crawl_site(config, crawler=_FakeCrawler(fake_results))
+
+    assert summary.page_count == 2
+    assert summary.files == ["good.md", "index.md", "overview.md"]
+    assert [(p.url, p.reason) for p in summary.failed_pages] == [
+        ("https://example.com/docs/bad", "Conversion failed: malformed DOM")
+    ]
+    overview = (out_dir / "overview.md").read_text(encoding="utf-8")
+    assert "[Good](good.md)" in overview
+    assert "[Bad](https://example.com/docs/bad)" in overview
+
+
+async def test_crawl_site_raises_when_every_page_fails_conversion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def always_fail(html: str, url: str = "") -> str:
+        raise ValueError("broken html")
+
+    monkeypatch.setattr("web2md.crawler.extract_markdown", always_fail)
+    fake_results = [CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)]
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
+
+    with pytest.raises(RuntimeError, match=r"No pages were successfully crawled.*Conversion failed: broken html"):
+        await crawl_site(config, crawler=_FakeCrawler(fake_results))
 
 
 async def test_crawl_site_raises_with_reason_when_no_page_succeeds(tmp_path: Path):

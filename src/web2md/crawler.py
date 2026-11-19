@@ -77,7 +77,7 @@ class CrawlConfig(BaseModel):
 
 
 class FailedPage(BaseModel):
-    """A page that could not be fetched, with the HTTP status and the reason reported by the crawler."""
+    """A page that could not be fetched or converted, with the HTTP status and failure reason."""
 
     url: str
     status_code: int | None = None
@@ -338,6 +338,16 @@ class _TriagedResults:
     seed_redirected_to: str | None = None
 
 
+@dataclass
+class _ExtractedPage:
+    result: CrawlResult
+    final_url: str
+    raw_markdown: str
+    title: str
+    description: str
+    link_base_url: str
+
+
 def _final_url(result: CrawlResult) -> str:
     return result.redirected_url or result.url
 
@@ -432,59 +442,99 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
             ) from exc
 
     triaged = await _triage_results(_flatten_crawl_results(raw_results), config.url, filter_chain)
-    if not triaged.pages:
+
+    extracted: list[_ExtractedPage] = []
+    for res in triaged.pages:
+        final_url = _final_url(res)
+        html = res.html or ""
+        try:
+            raw_md = extract_markdown(html, url=final_url)
+            fallback_title = str((res.metadata or {}).get("title") or "")
+            meta = extract_page_metadata(html, raw_md, fallback_title=fallback_title)
+            link_base_url = extract_base_url(html, final_url)
+        except Exception as exc:
+            triaged.failed.append(
+                FailedPage(url=final_url, status_code=res.status_code, reason=f"Conversion failed: {exc}")
+            )
+            continue
+        extracted.append(
+            _ExtractedPage(
+                result=res,
+                final_url=final_url,
+                raw_markdown=raw_md,
+                title=meta.title,
+                description=meta.description,
+                link_base_url=link_base_url,
+            )
+        )
+
+    if not extracted:
         reasons = "; ".join(f"{page.url}: {page.reason}" for page in triaged.failed[:3])
         raise RuntimeError(
             f"No pages were successfully crawled from {config.url}" + (f" ({reasons})" if reasons else "")
         )
 
-    url_to_relpath = compute_relative_paths([_final_url(res) for res in triaged.pages], config.url)
+    url_to_relpath = compute_relative_paths([page.final_url for page in extracted], config.url)
     link_lookup = build_link_lookup(url_to_relpath)
     # Links written against a pre-redirect URL should resolve to the page that the redirect led to.
     for requested_url, final_url in triaged.redirects.items():
-        link_lookup.setdefault(normalize_url_key(requested_url), link_lookup[normalize_url_key(final_url)])
+        if (target := link_lookup.get(normalize_url_key(final_url))) is not None:
+            link_lookup.setdefault(normalize_url_key(requested_url), target)
 
     seed_key = normalize_url_key(config.url)
     seed_result = next(
         (res for res in triaged.pages if seed_key in (normalize_url_key(res.url), normalize_url_key(_final_url(res)))),
-        triaged.pages[0],
+        extracted[0].result,
     )
     seed_final_url = _final_url(seed_result)
-    nav_order = extract_sidebar_links(seed_result.html or "", seed_final_url)
+    try:
+        nav_order = extract_sidebar_links(seed_result.html or "", seed_final_url)
+    except Exception:
+        nav_order = []
 
     resolved_fields = _resolve_frontmatter_fields(config.frontmatter, config.frontmatter_fields)
     crawl_timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     pages: list[CrawledPageDoc] = []
-    for res in triaged.pages:
-        final_url = _final_url(res)
-        relpath = url_to_relpath[final_url]
-        raw_md = extract_markdown(res.html or "", url=final_url)
-        fallback_title = str((res.metadata or {}).get("title") or "")
-        meta = extract_page_metadata(res.html or "", raw_md, fallback_title=fallback_title)
-        link_base_url = extract_base_url(res.html or "", final_url)
-        rewritten = rewrite_markdown_links(raw_md, link_base_url, relpath, link_lookup)
-
-        if resolved_fields is not None:
-            fm = format_frontmatter(
-                meta.title,
-                meta.description,
-                final_url,
-                timestamp=crawl_timestamp,
-                fields=resolved_fields,
+    for item in extracted:
+        relpath = url_to_relpath[item.final_url]
+        try:
+            rewritten = rewrite_markdown_links(item.raw_markdown, item.link_base_url, relpath, link_lookup)
+            if resolved_fields is not None:
+                fm = format_frontmatter(
+                    item.title,
+                    item.description,
+                    item.final_url,
+                    timestamp=crawl_timestamp,
+                    fields=resolved_fields,
+                )
+                final_md = f"{fm}\n\n{rewritten}".strip() + "\n"
+            else:
+                final_md = rewritten.strip() + "\n" if rewritten.strip() else ""
+        except Exception as exc:
+            triaged.failed.append(
+                FailedPage(
+                    url=item.final_url,
+                    status_code=item.result.status_code,
+                    reason=f"Conversion failed: {exc}",
+                )
             )
-            final_md = f"{fm}\n\n{rewritten}".strip() + "\n"
-        else:
-            final_md = rewritten.strip() + "\n" if rewritten.strip() else ""
+            continue
 
         pages.append(
             CrawledPageDoc(
-                url=final_url,
+                url=item.final_url,
                 relpath=relpath,
-                title=meta.title,
-                description=meta.description,
+                title=item.title,
+                description=item.description,
                 markdown=final_md,
             )
+        )
+
+    if not pages:
+        reasons = "; ".join(f"{page.url}: {page.reason}" for page in triaged.failed[:3])
+        raise RuntimeError(
+            f"No pages were successfully crawled from {config.url}" + (f" ({reasons})" if reasons else "")
         )
 
     seed_host = urlparse(seed_final_url).netloc
