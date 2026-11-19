@@ -24,13 +24,10 @@ from web2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
 def _is_expected_cli_error(exc: BaseException) -> bool:
     if isinstance(exc, (OSError, ValueError, RuntimeError, re.error)):
         return True
-    # Avoid importing httpx and playwright just to check exception types when they were never loaded.
-    for mod_name, attr in (("httpx", "HTTPError"), ("playwright.async_api", "Error")):
-        mod = sys.modules.get(mod_name)
-        err_cls = getattr(mod, attr, None)
-        if isinstance(err_cls, type) and isinstance(exc, err_cls):
-            return True
-    return False
+    # Avoid importing playwright just to check exception types when it was never loaded.
+    mod = sys.modules.get("playwright.async_api")
+    err_cls = getattr(mod, "Error", None)
+    return isinstance(err_cls, type) and isinstance(exc, err_cls)
 
 
 def _at_least[NumberT: (int, float)](minimum: NumberT) -> Callable[[str], NumberT]:
@@ -141,7 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "setup",
-        help="Download the headless browser that crawl needs (about 290 MB). Run once after installing or upgrading.",
+        help="Download the headless browser used for fetching URLs (about 290 MB). Run once after installing or upgrading.",
     )
 
     return parser
@@ -195,10 +192,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
         if args.command == "convert":
-            markdown = convert_single(
-                args.source,
-                frontmatter=args.frontmatter,
-                frontmatter_fields=frontmatter_fields,
+            markdown = asyncio.run(
+                convert_single(
+                    args.source,
+                    frontmatter=args.frontmatter,
+                    frontmatter_fields=frontmatter_fields,
+                )
             )
             if args.output is not None:
                 args.output.parent.mkdir(parents=True, exist_ok=True)

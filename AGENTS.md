@@ -14,7 +14,7 @@
 - **言語・ランタイム**: Python 3.14
 - **パッケージ・環境管理**: uv, mise
 - **タスクランナー**: go-task（`task`）
-- **クローラー・HTTP**: Crawl4AI（Playwright）, httpx
+- **クローラー・ブラウザ**: Crawl4AI（Playwright）
 - **HTML 解析・Markdown 変換**: BeautifulSoup4, lxml, markdownify
 - **データ検証**: Pydantic
 - **リント・フォーマット・型検査**: Ruff, Pyright, tombi, markdownlint-cli2
@@ -32,7 +32,7 @@
 - [src/web2md/extractors.py](src/web2md/extractors.py): HTML→Markdown 変換（本文コンテナの選択、不要要素の除去、markdownify による変換）、メタデータ抽出、サイドバーリンク抽出
 - [src/web2md/markdown_code.py](src/web2md/markdown_code.py): Markdown のフェンス付きコードブロックとインラインコードの判定（後処理やリンク書き換えの対象から外すために使う）
 - [src/web2md/site_builder.py](src/web2md/site_builder.py): URL→相対パス設計、Markdown 内の相対リンク書き換え、YAML フロントマター生成、階層目次（`index.md`）生成
-- [src/web2md/crawler.py](src/web2md/crawler.py): 単一ページ変換（`convert_single`）および Crawl4AI によるサイトクロール（`crawl_site`, `crawl_site_sync`）
+- [src/web2md/crawler.py](src/web2md/crawler.py): 単一ページ変換（`convert_single`, `convert_single_sync`）および Crawl4AI によるサイトクロール（`crawl_site`, `crawl_site_sync`）
 - [src/web2md/cli.py](src/web2md/cli.py): `web2md` CLI エントリポイント
 - [docs/comparison.md](docs/comparison.md): 各変換手法・目次生成手法の検証結果
 

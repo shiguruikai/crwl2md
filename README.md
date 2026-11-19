@@ -18,13 +18,13 @@ uv tool install git+https://github.com/shiguruikai/web2md.git
 # ローカルのリポジトリからインストールする場合（開発時は -e .）
 uv tool install .
 
-# crawl が使うヘッドレスブラウザをダウンロード（約 290 MB）
+# URL 取得に使うヘッドレスブラウザをダウンロード（約 290 MB）
 web2md setup
 ```
 
 - `web2md` コマンドが見つからない場合は `uv tool update-shell` を実行し、シェルを再起動してください。
-- `web2md setup` は、`crawl` を使う場合にだけ必要です。`convert` はブラウザなしで動きます。
-- `uv tool upgrade web2md` で更新したあとも `web2md setup` を実行してください。ブラウザは Playwright のバージョンごとに決まったビルドが必要で、ブラウザだけを更新することはできません。合っていない場合、`crawl` は `web2md setup` の実行を求めて終了します。
+- `web2md setup` は、URL を取得する `crawl` と `convert <URL>` で必要です。ローカル HTML ファイルの変換（`convert <PATH>`）はブラウザなしで動きます。
+- `uv tool upgrade web2md` で更新したあとも `web2md setup` を実行してください。ブラウザは Playwright のバージョンごとに決まったビルドが必要で、ブラウザだけを更新することはできません。合っていない場合、`crawl` や `convert <URL>` は `web2md setup` の実行を求めて終了します。
 - PyPI には、別の作者による同名のパッケージ `web2md` があります。`uv tool install web2md` や `uvx web2md` のように名前だけを指定すると、そちらがインストールされます。上記のとおり、リポジトリの URL またはパスを指定してください。
 
 ## アンインストール
@@ -123,9 +123,9 @@ Python API 例:
 ```python
 from pathlib import Path
 
-from web2md import CrawlConfig, convert_single, crawl_site_sync
+from web2md import CrawlConfig, convert_single_sync, crawl_site_sync
 
-markdown = convert_single(Path("page.html"), frontmatter=True)
+markdown = convert_single_sync(Path("page.html"), frontmatter=True)
 
 summary = crawl_site_sync(
     CrawlConfig(
@@ -214,7 +214,6 @@ output/
 
 - 既定では robots.txt を確認しません。公開サイトをクロールする場合は、サイトの利用規約を確認し、必要に応じて `--respect-robots` を指定してください。
 - 既定では、最大5ページを同時に取得し、取得のまとまりごとに 0.1〜0.4 秒待ちます。失敗の一覧に `HTTP 429` が出る場合は、`--delay 2 --concurrency 1` のように間隔を空けて再実行してください。429 または 503 を受け取ると、以降の待ち時間は自動的に延びますが、拒否されたページを待ってから取り直すことはしません。
-- `convert` は HTTP で取得した HTML をそのまま変換します。JavaScript で本文を描画するページは、ブラウザで描画してから取得する `crawl`（`--max-depth 0` で1ページだけ取得できます）を使ってください。
 - 起点 URL が別のホストやディレクトリへリダイレクトされる場合、範囲はリダイレクト前の URL から決まるため、起点ページしか取得できません。このときは終了時にリダイレクト先の URL を警告として表示するので、その URL を起点に指定して再実行してください。
 - インライン SVG で描かれた図は出力されません。
-- 出力先に既にあるファイルは削除しません。前回のクロールで作られ、今回は作られなかったファイルは残ります。
+- 出力先にファイルが既に存在する場合は上書きを防ぐため終了します。既存の出力先へ再クロールするときは `--force` を指定してください。なお、`--force` を指定しても前回のクロールで作られ今回は作られなかったファイルは削除しません。

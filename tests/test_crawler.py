@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
 from crawl4ai import CrawlResult
 from crawl4ai.models import CrawlResultContainer
@@ -16,6 +15,7 @@ from web2md import (
     BrowserNotInstalledError,
     CrawlConfig,
     convert_single,
+    convert_single_sync,
     crawl_site,
     crawl_site_sync,
     extract_markdown,
@@ -42,15 +42,6 @@ class _FakeCrawler:
 
 def _page(title: str, body: str = "<p>Body.</p>") -> str:
     return f"<html><head><title>{title}</title></head><body><main><h1>{title}</h1>{body}</main></body></html>"
-
-
-def _fake_http_get(monkeypatch: pytest.MonkeyPatch, content: bytes, content_type: str = "text/html") -> None:
-    def fake_get(url: str, **_: object) -> httpx.Response:
-        return httpx.Response(
-            200, content=content, headers={"content-type": content_type}, request=httpx.Request("GET", url)
-        )
-
-    monkeypatch.setattr(httpx, "get", fake_get)
 
 
 async def test_crawl_site_writes_markdown_and_toc(tmp_path: Path):
@@ -721,72 +712,106 @@ def test_crawl_site_sync_runs_crawl_without_event_loop(tmp_path: Path):
     assert "description:" not in intro_text
 
 
-def test_convert_single_url_resolves_relative_links_to_absolute_urls(monkeypatch: pytest.MonkeyPatch):
+async def test_convert_single_url_resolves_relative_links_to_absolute_urls():
     html = _page("Page", '<p>See <a href="/docs/next">next</a> and <a href="other.html#x">other</a>.</p>')
-    _fake_http_get(monkeypatch, html.encode("utf-8"), "text/html; charset=utf-8")
+    fake_crawler = _FakeCrawler(
+        [
+            CrawlResult(
+                url="https://example.com/old",
+                redirected_url="https://example.com/docs/page",
+                html=html,
+                success=True,
+                status_code=200,
+            )
+        ]
+    )
 
-    md = convert_single("https://example.com/docs/page", frontmatter_fields=["source"])
+    md = await convert_single("https://example.com/old", frontmatter_fields=["source"], crawler=fake_crawler)
 
     assert "[next](https://example.com/docs/next)" in md
     assert "[other](https://example.com/docs/other.html#x)" in md
     assert 'source: "https://example.com/docs/page"' in md
+    assert fake_crawler.run_config.wait_for.startswith("js:")
 
 
-def test_convert_single_url_honors_base_href_for_links_and_images(monkeypatch: pytest.MonkeyPatch):
+async def test_convert_single_url_honors_base_href_for_links_and_images():
     html = (
         '<html><head><base href="https://cdn.example.com/v2/"></head>'
         '<body><main><h1>Page</h1><p><a href="guide.html">Guide</a> <img src="img/a.png" alt="A"></p></main></body></html>'
     )
-    _fake_http_get(monkeypatch, html.encode("utf-8"), "text/html; charset=utf-8")
+    fake_crawler = _FakeCrawler(
+        [CrawlResult(url="https://example.com/docs/page", html=html, success=True, status_code=200)]
+    )
 
-    md = convert_single("https://example.com/docs/page", frontmatter_fields=["source"])
+    md = await convert_single("https://example.com/docs/page", frontmatter_fields=["source"], crawler=fake_crawler)
 
     assert "[Guide](https://cdn.example.com/v2/guide.html)" in md
     assert '<img src="https://cdn.example.com/v2/img/a.png" alt="A">' in md
     assert 'source: "https://example.com/docs/page"' in md
 
 
-def test_convert_single_url_detects_encoding_declared_only_in_meta_tag(monkeypatch: pytest.MonkeyPatch):
-    html = '<html><head><meta charset="shift_jis"></head><body><main><h1>日本語の見出し</h1></main></body></html>'
-    _fake_http_get(monkeypatch, html.encode("shift_jis"))
+async def test_convert_single_url_raises_on_http_error_or_empty_page():
+    http_404 = _FakeCrawler(
+        [CrawlResult(url="https://example.com/missing", html=_page("Not Found"), success=True, status_code=404)]
+    )
+    empty_page = _FakeCrawler(
+        [
+            CrawlResult(
+                url="https://example.com/empty",
+                html="<html><body><main></main></body></html>",
+                success=True,
+                status_code=200,
+            )
+        ]
+    )
 
-    md = convert_single("https://example.com/ja/page")
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        await convert_single("https://example.com/missing", crawler=http_404)
+    with pytest.raises(RuntimeError, match="Empty page content"):
+        await convert_single("https://example.com/empty", crawler=empty_page)
 
-    assert md == "# 日本語の見出し\n"
+
+def test_convert_single_sync_runs_without_event_loop(tmp_path: Path):
+    html_file = tmp_path / "page.html"
+    html_file.write_text(_page("Local"), encoding="utf-8")
+
+    md = convert_single_sync(html_file)
+
+    assert md.startswith("# Local\n")
 
 
-def test_convert_single_local_file_detects_non_utf8_encoding(tmp_path: Path):
+async def test_convert_single_local_file_detects_non_utf8_encoding(tmp_path: Path):
     html_file = tmp_path / "sjis.html"
     html = '<html><head><meta charset="shift_jis"></head><body><main><h1>日本語の見出し</h1></main></body></html>'
     html_file.write_bytes(html.encode("shift_jis"))
 
-    md = convert_single(str(html_file))
+    md = await convert_single(str(html_file))
 
     assert md == "# 日本語の見出し\n"
 
 
-def test_convert_single_accepts_path_object(tmp_path: Path):
+async def test_convert_single_accepts_path_object(tmp_path: Path):
     html_file = tmp_path / "page.html"
     html_file.write_text(_page("Local"), encoding="utf-8")
 
-    md = convert_single(html_file)
+    md = await convert_single(html_file)
 
     assert md.startswith("# Local\n")
 
 
-def test_convert_single_accepts_file_uri(tmp_path: Path):
+async def test_convert_single_accepts_file_uri(tmp_path: Path):
     html_file = tmp_path / "my page.html"
     html_file.write_text(_page("Local"), encoding="utf-8")
 
-    md = convert_single(html_file.as_uri())
+    md = await convert_single(html_file.as_uri())
 
     assert md.startswith("# Local\n")
 
 
-def test_convert_single_local_file_omits_frontmatter_without_values(tmp_path: Path):
+async def test_convert_single_local_file_omits_frontmatter_without_values(tmp_path: Path):
     html_file = tmp_path / "page.html"
     html_file.write_text(_page("Local"), encoding="utf-8")
 
-    md = convert_single(str(html_file), frontmatter_fields=["source"])
+    md = await convert_single(str(html_file), frontmatter_fields=["source"])
 
     assert md.startswith("# Local\n")

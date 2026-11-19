@@ -170,13 +170,57 @@ def _flatten_crawl_results(raw_result: Any) -> list[CrawlResult]:
     return []
 
 
-def fetch_html(url: str, timeout: float = 30.0) -> tuple[str, str]:
-    """Fetch HTML and the resolved final URL over HTTP(S)."""
-    import httpx
+async def _arun_with_browser(url: str, run_config: Any, *, verbose: bool = False, crawler: Any | None = None) -> Any:
+    if crawler is not None:
+        return await crawler.arun(url, config=run_config)
 
-    response = httpx.get(url, follow_redirects=True, timeout=timeout)
-    response.raise_for_status()
-    return _decode_html(response.content, response.charset_encoding), str(response.url)
+    from crawl4ai import BrowserConfig
+    from playwright.async_api import Error as PlaywrightError
+
+    # Crawl4AI prints a promotional banner unless told otherwise; an explicit user setting still wins.
+    os.environ.setdefault("CRAWL4AI_NO_CLOUD_NOTICE", "1")
+    # text_mode skips image requests since web2md only extracts HTML and keeps image URLs.
+    browser_config = BrowserConfig(
+        headless=True,
+        text_mode=True,
+        user_agent=await _get_desktop_chrome_user_agent(),
+        verbose=verbose,
+    )
+    try:
+        async with _create_browser_crawler(browser_config) as active_crawler:
+            return await active_crawler.arun(url, config=run_config)
+    except PlaywrightError as exc:
+        if "Executable doesn't exist" not in str(exc):
+            raise
+        raise BrowserNotInstalledError(
+            "The headless browser is not installed, or it does not match the installed Playwright version. "
+            "Run `web2md setup` (or call `web2md.install_browser()`) to download it."
+        ) from exc
+
+
+async def _fetch_html_with_browser(url: str, *, crawler: Any | None = None) -> tuple[str, str]:
+    from crawl4ai import CrawlerRunConfig
+    from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
+
+    run_config = CrawlerRunConfig(
+        stream=False,
+        scraping_strategy=LXMLWebScrapingStrategy(),
+        wait_for=_CONTENT_READY_JS,
+        wait_for_timeout=_CONTENT_WAIT_TIMEOUT_MS,
+        max_retries=1,
+        verbose=False,
+    )
+    raw = await _arun_with_browser(url, run_config, crawler=crawler)
+    results = _flatten_crawl_results(raw)
+    if not results:
+        raise RuntimeError(f"Failed to fetch {url}: no result returned by crawler")
+    res = results[0]
+    final_url = _final_url(res)
+    http_error = res.status_code is not None and res.status_code >= 400
+    if not res.success or http_error:
+        reason = res.error_message or (f"HTTP {res.status_code}" if http_error else "Unknown error")
+        raise RuntimeError(f"Failed to fetch {final_url}: {reason}")
+    return res.html or "", final_url
 
 
 def _resolve_frontmatter_fields(
@@ -190,24 +234,32 @@ def _resolve_frontmatter_fields(
     return None
 
 
-def convert_single(
+async def convert_single(
     source: str | PathLike[str],
     frontmatter: bool = False,
     frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
+    *,
+    crawler: Any | None = None,
 ) -> str:
-    """Convert a single HTTP(S) URL, `file://` URI, or local HTML file path into Markdown."""
+    """Convert a single HTTP(S) URL, `file://` URI, or local HTML file path into Markdown.
+
+    HTTP(S) URLs are rendered with the headless browser; `crawler` replaces it for tests.
+    """
     resolved_fields = _resolve_frontmatter_fields(frontmatter, frontmatter_fields)
 
     if isinstance(source, str) and source.startswith(("http://", "https://")):
-        html, final_url = fetch_html(source)
+        html, final_url = await _fetch_html_with_browser(source, crawler=crawler)
+        md = extract_markdown(html, url=final_url)
+        if not md.strip():
+            raise RuntimeError(f"Empty page content for {final_url}")
     else:
         local_path = _resolve_local_path(source)
         if not local_path.is_file():
             raise FileNotFoundError(f"HTML file not found: {source}")
         html = _decode_html(local_path.read_bytes())
         final_url = ""
+        md = extract_markdown(html, url=final_url)
 
-    md = extract_markdown(html, url=final_url)
     link_base_url = extract_base_url(html, final_url)
     if link_base_url:
         # A standalone file has no sibling pages, so every relative link must become an absolute URL.
@@ -218,6 +270,19 @@ def convert_single(
         md = "\n\n".join(part for part in (fm, md) if part)
 
     return md.rstrip() + "\n" if md else ""
+
+
+def convert_single_sync(
+    source: str | PathLike[str],
+    frontmatter: bool = False,
+    frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
+    *,
+    crawler: Any | None = None,
+) -> str:
+    """Synchronous wrapper around `convert_single` for callers without a running event loop."""
+    return asyncio.run(
+        convert_single(source, frontmatter=frontmatter, frontmatter_fields=frontmatter_fields, crawler=crawler)
+    )
 
 
 def _glob_to_regex(pattern: str, *, leading_star_any: bool = False) -> str:
@@ -533,9 +598,8 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     `crawler` replaces the Crawl4AI browser crawler and exists for tests.
     """
     _ensure_output_dir_writable(config.output_dir, force=config.force)
-    from crawl4ai import BrowserConfig, CrawlerRunConfig
+    from crawl4ai import CrawlerRunConfig
     from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
-    from playwright.async_api import Error as PlaywrightError
 
     filter_chain = build_filter_chain(config)
     include_external = len(_allowed_domains(config)) > 1
@@ -559,28 +623,7 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
         verbose=config.verbose,
     )
 
-    if crawler is not None:
-        raw_results = await crawler.arun(config.url, config=run_config)
-    else:
-        # Crawl4AI prints a promotional banner unless told otherwise; an explicit user setting still wins.
-        os.environ.setdefault("CRAWL4AI_NO_CLOUD_NOTICE", "1")
-        # text_mode skips image requests since web2md only extracts HTML and keeps image URLs.
-        browser_config = BrowserConfig(
-            headless=True,
-            text_mode=True,
-            user_agent=await _get_desktop_chrome_user_agent(),
-            verbose=config.verbose,
-        )
-        try:
-            async with _create_browser_crawler(browser_config) as active_crawler:
-                raw_results = await active_crawler.arun(config.url, config=run_config)
-        except PlaywrightError as exc:
-            if "Executable doesn't exist" not in str(exc):
-                raise
-            raise BrowserNotInstalledError(
-                "The headless browser is not installed, or it does not match the installed Playwright version. "
-                "Run `web2md setup` (or call `web2md.install_browser()`) to download it."
-            ) from exc
+    raw_results = await _arun_with_browser(config.url, run_config, verbose=config.verbose, crawler=crawler)
 
     all_results = _flatten_crawl_results(raw_results)
     triaged = await _triage_results(all_results, config.url, filter_chain)
