@@ -208,7 +208,7 @@ for page in summary.failed_pages:
 | --- | --- | --- |
 | URL のグロブ | `https://example.com/docs/**` | `/docs` 自体とその配下すべて |
 | ホスト相対のグロブ（`/` で始まる） | `/docs/*` | 任意のホストの `/docs` 直下 |
-| 相対グロブ | `api/**`、`*.pdf` | パスの途中に `api/` というディレクトリを持つ URL、`.pdf` で終わる URL |
+| 相対グロブ | `api/**`、`*.html` | パスの途中に `api/` というディレクトリを持つ URL、`.html` で終わる URL |
 | 部分文字列（`*` も `?` も含まない） | `changelog` | `changelog` を含む URL |
 | 正規表現（`^` で始まるか `$` で終わる） | `^https://example\.com/v\d+/` | 正規表現に一致する URL |
 

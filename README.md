@@ -208,7 +208,7 @@ Pages that end up outside the scope after a redirect are not saved and are liste
 | --- | --- | --- |
 | Full URL glob | `https://example.com/docs/**` | `/docs` itself and everything under it |
 | Host-relative glob (starts with `/`) | `/docs/*` | Direct children of `/docs` on any host |
-| Relative glob | `api/**`, `*.pdf` | URLs with an `api/` path segment, or URLs ending in `.pdf` |
+| Relative glob | `api/**`, `*.html` | URLs with an `api/` path segment, or URLs ending in `.html` |
 | Substring (no `*` or `?`) | `changelog` | Any URL containing `changelog` |
 | Regular expression (starts with `^` or ends with `$`) | `^https://example\.com/v\d+/` | URLs matching the regex |
 
