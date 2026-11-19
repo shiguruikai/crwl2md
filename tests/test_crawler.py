@@ -585,6 +585,71 @@ def test_install_browser_reports_failed_download(monkeypatch: pytest.MonkeyPatch
         install_browser()
 
 
+async def test_crawl_site_defaults_to_unlimited_depth(tmp_path: Path):
+    fake_crawler = _FakeCrawler([CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)])
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
+
+    await crawl_site(config, crawler=fake_crawler)
+
+    assert config.max_depth is None
+    assert fake_crawler.run_config.deep_crawl_strategy.max_depth == sys.maxsize
+
+
+async def test_crawl_site_reports_unfetched_in_scope_links_when_hit_max_pages(tmp_path: Path):
+    fake_results = [
+        CrawlResult(
+            url="https://example.com/docs/",
+            html=_page("Docs"),
+            success=True,
+            metadata={"depth": 0},
+            links={
+                "internal": [
+                    {"href": "https://example.com/docs/a"},
+                    {"href": "https://example.com/docs/b"},
+                    {"href": "https://example.com/docs/b#section"},
+                    {"href": "https://example.com/docs/c"},
+                    {"href": "https://example.com/blog/out-of-scope"},
+                    {"href": "https://example.com/docs/file.pdf"},
+                ],
+                "external": [{"href": "https://other.example.org/docs/x"}],
+            },
+        ),
+        CrawlResult(
+            url="https://example.com/docs/a",
+            html=_page("A"),
+            success=True,
+            metadata={"depth": 1},
+            links={"internal": [], "external": []},
+        ),
+    ]
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", max_pages=2)
+
+    summary = await crawl_site(config, crawler=_FakeCrawler(fake_results))
+
+    assert summary.unfetched_in_scope_links == 2
+    assert summary.hit_max_pages is True
+    assert summary.hit_max_depth is False
+
+
+async def test_crawl_site_reports_unfetched_in_scope_links_when_hit_max_depth(tmp_path: Path):
+    fake_results = [
+        CrawlResult(
+            url="https://example.com/docs/",
+            html=_page("Docs"),
+            success=True,
+            metadata={"depth": 0},
+            links={"internal": [{"href": "/docs/child"}], "external": []},
+        ),
+    ]
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", max_depth=0, max_pages=10)
+
+    summary = await crawl_site(config, crawler=_FakeCrawler(fake_results))
+
+    assert summary.unfetched_in_scope_links == 1
+    assert summary.hit_max_pages is False
+    assert summary.hit_max_depth is True
+
+
 async def test_crawl_site_passes_pacing_options_to_crawl4ai(tmp_path: Path):
     fake_crawler = _FakeCrawler([CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)])
     config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", delay=2.0, concurrency=1)

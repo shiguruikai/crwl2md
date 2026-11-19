@@ -135,6 +135,54 @@ def test_cli_crawl_rejects_url_without_http_scheme(tmp_path: Path, bad_url: str,
     assert "Crawl scope:" not in stderr
 
 
+@pytest.mark.parametrize(
+    ("extra_args", "summary_kwargs", "expected_fragment"),
+    [
+        (
+            ["--max-pages", "10"],
+            {"unfetched_in_scope_links": 5, "hit_max_pages": True},
+            "Warning: 5 in-scope links were not fetched (stopped at --max-pages 10).",
+        ),
+        (
+            ["--max-depth", "2"],
+            {"unfetched_in_scope_links": 1, "hit_max_depth": True},
+            "Warning: 1 in-scope link was not fetched (stopped at --max-depth 2).",
+        ),
+        (
+            ["--max-depth", "2", "--max-pages", "10"],
+            {"unfetched_in_scope_links": 7, "hit_max_depth": True, "hit_max_pages": True},
+            "Warning: 7 in-scope links were not fetched (stopped at --max-depth 2 and --max-pages 10).",
+        ),
+    ],
+)
+def test_cli_crawl_warns_when_in_scope_links_were_not_fetched(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    extra_args: list[str],
+    summary_kwargs: dict[str, object],
+    expected_fragment: str,
+):
+    async def fake_crawl_site(config: CrawlConfig) -> CrawlSummary:
+        return CrawlSummary(
+            seed_url=config.url,
+            output_dir=config.output_dir,
+            page_count=1,
+            toc_count=1,
+            failed_pages=[],
+            skipped_urls=[],
+            files=["index.md", "overview.md"],
+            **summary_kwargs,  # type: ignore[arg-type]
+        )
+
+    monkeypatch.setattr("web2md.cli.crawl_site", fake_crawl_site)
+
+    exit_code = main(["crawl", "https://example.com/docs/", "-o", str(tmp_path), *extra_args])
+
+    assert exit_code == 0
+    assert expected_fragment in capsys.readouterr().err
+
+
 def test_cli_crawl_reports_invalid_regex_pattern(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     exit_code = main(["crawl", "https://example.com/docs/", "-o", str(tmp_path), "--include", "^("])
 

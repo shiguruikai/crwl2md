@@ -13,7 +13,7 @@ from functools import cache
 from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from bs4.dammit import UnicodeDammit
 from pydantic import BaseModel, Field, field_validator
@@ -65,7 +65,7 @@ class CrawlConfig(BaseModel):
 
     url: str
     output_dir: Path
-    max_depth: int = Field(default=2, ge=0)
+    max_depth: int | None = Field(default=None, ge=0)
     max_pages: int = Field(default=100, ge=1)
     include_patterns: list[str] = Field(default_factory=list)
     exclude_patterns: list[str] = Field(default_factory=list)
@@ -106,6 +106,9 @@ class CrawlSummary(BaseModel):
     # Set when the seed was redirected outside the crawl scope, which leaves its links unfollowed.
     # Crawling again with this URL as the seed covers the site.
     seed_redirected_to: str | None = None
+    unfetched_in_scope_links: int = 0
+    hit_max_pages: bool = False
+    hit_max_depth: bool = False
     files: list[str]
 
 
@@ -422,6 +425,60 @@ def _resolve_output_path(output_dir: Path, relpath: str) -> Path:
     return dest
 
 
+async def _analyze_unfetched_links(
+    all_results: Sequence[CrawlResult],
+    extracted_pages: Sequence[_ExtractedPage],
+    config: CrawlConfig,
+    filter_chain: FilterChain,
+) -> tuple[int, bool, bool]:
+    fetched_keys: set[str] = set()
+    for res in all_results:
+        fetched_keys.add(normalize_url_key(res.url))
+        fetched_keys.add(normalize_url_key(_final_url(res)))
+
+    unfetched_keys: set[str] = set()
+    has_unfetched_at_max_depth = False
+
+    for item in extracted_pages:
+        links_map = item.result.links
+        if not isinstance(links_map, Mapping):
+            continue
+        raw_depth = (item.result.metadata or {}).get("depth")
+        page_depth = raw_depth if isinstance(raw_depth, int) else None
+
+        for group in ("internal", "external"):
+            entries = links_map.get(group)
+            if not isinstance(entries, Iterable) or isinstance(entries, (str, bytes)):
+                continue
+            for entry in entries:
+                href = entry.get("href") if isinstance(entry, Mapping) else None
+                if not isinstance(href, str):
+                    continue
+                cleaned_href = href.strip()
+                if not cleaned_href or cleaned_href.startswith(("#", "mailto:", "tel:", "javascript:", "data:")):
+                    continue
+                abs_url = urljoin(item.link_base_url, cleaned_href)
+                parsed = urlparse(abs_url)
+                if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                    continue
+                clean_url = parsed._replace(fragment="").geturl()
+                key = normalize_url_key(clean_url)
+                if key in fetched_keys or key in unfetched_keys:
+                    continue
+                if await filter_chain.apply(clean_url):
+                    unfetched_keys.add(key)
+                    if config.max_depth is not None and page_depth is not None and page_depth >= config.max_depth:
+                        has_unfetched_at_max_depth = True
+
+    if not unfetched_keys:
+        return 0, False, False
+
+    successful_fetches = sum(1 for res in all_results if res.success)
+    hit_max_pages = successful_fetches >= config.max_pages
+    hit_max_depth = config.max_depth is not None and has_unfetched_at_max_depth
+    return len(unfetched_keys), hit_max_pages, hit_max_depth
+
+
 def _ensure_output_dir_writable(output_dir: Path, *, force: bool) -> None:
     if not output_dir.exists():
         return
@@ -454,10 +511,11 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     filter_chain = build_filter_chain(config)
     include_external = len(_allowed_domains(config)) > 1
     strategy_cls = _link_following_bfs_strategy_cls()
+    effective_max_depth = config.max_depth if config.max_depth is not None else sys.maxsize
     run_config = CrawlerRunConfig(
         stream=False,
         deep_crawl_strategy=strategy_cls(
-            max_depth=config.max_depth,
+            max_depth=effective_max_depth,
             max_pages=config.max_pages,
             filter_chain=filter_chain,
             include_external=include_external,
@@ -488,7 +546,8 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
                 "Run `web2md setup` (or call `web2md.install_browser()`) to download it."
             ) from exc
 
-    triaged = await _triage_results(_flatten_crawl_results(raw_results), config.url, filter_chain)
+    all_results = _flatten_crawl_results(raw_results)
+    triaged = await _triage_results(all_results, config.url, filter_chain)
 
     extracted: list[_ExtractedPage] = []
     for res in triaged.pages:
@@ -591,6 +650,10 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     files = {page.relpath: page.markdown for page in pages} | toc_files
     _write_files(config.output_dir, files)
 
+    unfetched_count, hit_max_pages, hit_max_depth = await _analyze_unfetched_links(
+        all_results, extracted, config, filter_chain
+    )
+
     return CrawlSummary(
         seed_url=config.url,
         output_dir=config.output_dir,
@@ -599,6 +662,9 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
         failed_pages=triaged.failed,
         skipped_urls=triaged.skipped,
         seed_redirected_to=triaged.seed_redirected_to,
+        unfetched_in_scope_links=unfetched_count,
+        hit_max_pages=hit_max_pages,
+        hit_max_depth=hit_max_depth,
         files=sorted(files),
     )
 

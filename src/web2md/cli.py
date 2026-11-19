@@ -10,6 +10,7 @@ from pathlib import Path
 from web2md import __version__
 from web2md.crawler import (
     CrawlConfig,
+    CrawlSummary,
     convert_single,
     crawl_site,
     describe_crawl_scope,
@@ -84,7 +85,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output directory for Markdown files and index.md.",
     )
     crawl_parser.add_argument(
-        "--max-depth", type=_at_least(0), default=2, metavar="N", help="Maximum crawl depth (default: 2)."
+        "--max-depth",
+        type=_at_least(0),
+        default=None,
+        metavar="N",
+        help="Maximum number of link hops from the seed page (0 = seed page only, default: unlimited).",
     )
     crawl_parser.add_argument(
         "--max-pages", type=_at_least(1), default=100, metavar="N", help="Maximum number of pages (default: 100)."
@@ -139,6 +144,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def _format_unfetched_warning(summary: CrawlSummary, config: CrawlConfig) -> str:
+    count = summary.unfetched_in_scope_links
+    noun = "link was" if count == 1 else "links were"
+    limits: list[str] = []
+    if summary.hit_max_depth and config.max_depth is not None:
+        limits.append(f"--max-depth {config.max_depth}")
+    if summary.hit_max_pages:
+        limits.append(f"--max-pages {config.max_pages}")
+    if summary.hit_max_pages and summary.hit_max_depth:
+        hint = "Raise the limits or narrow the scope with --include / --exclude."
+    elif summary.hit_max_pages:
+        hint = "Raise --max-pages or narrow the scope with --include / --exclude."
+    elif summary.hit_max_depth:
+        hint = "Raise --max-depth or omit it for unlimited depth."
+    else:
+        hint = ""
+    reason = f" (stopped at {' and '.join(limits)})" if limits else ""
+    return f"Warning: {count} in-scope {noun} not fetched{reason}." + (f" {hint}" if hint else "")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -202,6 +227,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "so links on that page were not followed. Run the crawl again with that URL as the seed.",
                     file=sys.stderr,
                 )
+            if summary.unfetched_in_scope_links > 0:
+                print(_format_unfetched_warning(summary, config), file=sys.stderr)
             if summary.skipped_urls:
                 print(f"Skipped pages outside the crawl scope ({len(summary.skipped_urls)}):", file=sys.stderr)
                 for url in summary.skipped_urls:
