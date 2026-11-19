@@ -27,6 +27,11 @@ from web2md.site_builder import (
         ("https://example.com/docs//sdk/?page=2", "https://example.com/docs/sdk?page=2"),
         ("https://example.com/docs/x/../sdk/./api", "https://example.com/docs/sdk/api"),
         ("https://example.com/docs/../../../etc", "https://example.com/etc"),
+        ("https://example.com:443/docs/a", "https://example.com/docs/a"),
+        ("http://example.com:80/docs/a", "http://example.com/docs/a"),
+        ("http://example.com:8080/docs/a", "http://example.com:8080/docs/a"),
+        ("https://example.com/docs/a?utm_source=x&fbclid=123", "https://example.com/docs/a"),
+        ("https://example.com/docs/a?b=2&utm_medium=email&a=1", "https://example.com/docs/a?a=1&b=2"),
     ],
 )
 def test_normalize_url_key(url: str, expected: str):

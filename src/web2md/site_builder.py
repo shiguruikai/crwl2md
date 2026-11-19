@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from itertools import takewhile
 from typing import Literal, cast
-from urllib.parse import quote, unquote, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlparse
 
 from pydantic import BaseModel
 
@@ -38,15 +38,33 @@ class CrawledPageDoc(BaseModel):
     markdown: str
 
 
+# Matches Crawl4AI's `normalize_url_for_deep_crawl` tracking-parameter list so links resolve to crawled pages.
+_TRACKING_QUERY_PARAMS = frozenset({"utm_source", "utm_medium", "utm_campaign", "ref", "fbclid"})
+_DEFAULT_PORTS = {"http": ":80", "https": ":443"}
+
+
 def normalize_url_key(url: str) -> str:
-    """Normalize a URL by resolving dot segments and stripping fragments, index filenames, and trailing slashes."""
+    """Normalize a URL by resolving dot segments, stripping default ports, tracking queries, fragments, and index names."""
     parsed = urlparse(url.strip())
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
+    default_port = _DEFAULT_PORTS.get(scheme)
+    if default_port and netloc.endswith(default_port):
+        netloc = netloc[: -len(default_port)]
     # normpath resolves "." / ".." the way browsers do, so "/docs/x/../../etc" can never escape the output root.
     path = posixpath.normpath(re.sub(r"/+", "/", parsed.path or "/"))
     if path.endswith(("/index.html", "/index.htm")):
         path = posixpath.dirname(path)
-    query = f"?{parsed.query}" if parsed.query else ""
-    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}{query}"
+    query = ""
+    if parsed.query:
+        kept_params = [
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if key not in _TRACKING_QUERY_PARAMS
+        ]
+        if kept_params:
+            query = f"?{urlencode(sorted(kept_params))}"
+    return f"{scheme}://{netloc}{path}{query}"
 
 
 def _sanitize_segment(segment: str) -> str:
