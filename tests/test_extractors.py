@@ -171,6 +171,33 @@ def test_extract_sidebar_links_extracts_ordered_same_host_links():
     ]
 
 
+def test_extract_sidebar_links_includes_active_leaf_item_rendered_without_anchor():
+    html = """
+    <html><body>
+      <aside id="side-panel"><nav>
+        <ul>
+          <li>
+            <span class="nav-item--active nav-section-no-index">Advanced</span>
+            <ul>
+              <li><span class="nav-item--active">Overview</span></li>
+              <li><a href="../adaptive-strategies/">Adaptive Strategies</a></li>
+              <li><a href="../virtual-scroll/">Virtual Scroll</a></li>
+            </ul>
+          </li>
+        </ul>
+      </nav></aside>
+    </body></html>
+    """
+
+    links = extract_sidebar_links(html, "https://docs.crawl4ai.com/advanced/advanced-features/")
+
+    assert links == [
+        "https://docs.crawl4ai.com/advanced/advanced-features/",
+        "https://docs.crawl4ai.com/advanced/adaptive-strategies/",
+        "https://docs.crawl4ai.com/advanced/virtual-scroll/",
+    ]
+
+
 def test_extract_markdown_preserves_images_as_html_img_tags():
     html = """
     <html><body><main>

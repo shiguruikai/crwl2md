@@ -498,9 +498,11 @@ def _link_following_bfs_strategy_cls() -> Any:
                         self._record_fetched_page(result, depths, parents, visited, results)
 
                 for result in level_results:
+                    depth = depths.get(result.url, 0)
                     status_code = _effective_status_code(result)
-                    if result.success and (status_code is None or status_code < 400):
-                        depth = depths.get(result.url, 0)
+                    # Follow links from the seed URL even if it returns HTTP 404: a section directory URL such as
+                    # `/advanced/` often has no index page of its own while still rendering the site's sidebar links.
+                    if result.success and (depth == 0 or status_code is None or status_code < 400):
                         await self.link_discovery(result, _final_url(result), depth, visited, next_level, depths)
 
                 current_level = next_level

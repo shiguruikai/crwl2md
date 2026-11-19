@@ -127,6 +127,7 @@ _UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
 _PRE_LEADING_BLANK_RE = re.compile(r"^[ \n]*\n")
 _HEADING_TAGS: tuple[str, ...] = ("h1", "h2", "h3", "h4", "h5", "h6")
 _CODE_LINE_WRAPPER_TAGS = frozenset({"div", "p", "li"})
+_ACTIVE_NAV_CLASS_RE = re.compile(r"(?:^|[\s_-])(?:active|current)(?:$|[\s_-])", re.IGNORECASE)
 
 
 class PageMetadata(BaseModel):
@@ -522,6 +523,24 @@ def extract_page_metadata(html: str, markdown: str, fallback_title: str = "") ->
     return PageMetadata(title=title, description=description or title)
 
 
+def _tag_classes_str(tag: Tag) -> str:
+    raw_classes = tag.get("class")
+    if isinstance(raw_classes, list):
+        return " ".join(str(c) for c in raw_classes)
+    return str(raw_classes or "")
+
+
+def _is_active_leaf_nav_item(li: Tag) -> bool:
+    if li.find(["ul", "ol"]) is not None or li.find("a", href=True) is not None:
+        return False
+    for node in (li, *li.find_all(True)):
+        if str(node.get("aria-current") or "").lower() == "page":
+            return True
+        if _ACTIVE_NAV_CLASS_RE.search(_tag_classes_str(node)):
+            return True
+    return False
+
+
 def extract_sidebar_links(html: str, base_url: str) -> list[str]:
     """Extract ordered, same-host document URLs from sidebar navigation DOM."""
     if not html.strip():
@@ -530,6 +549,9 @@ def extract_sidebar_links(html: str, base_url: str) -> list[str]:
     soup = BeautifulSoup(html, "lxml")
     effective_base = _resolve_base_url(soup, base_url)
     base_host = urlparse(base_url).netloc.lower() if base_url else ""
+    clean_base_url = (
+        urlparse(base_url)._replace(fragment="").geturl() if base_url.startswith(("http://", "https://")) else ""
+    )
 
     candidate_links: list[str] = []
     seen: set[str] = set()
@@ -537,17 +559,21 @@ def extract_sidebar_links(html: str, base_url: str) -> list[str]:
     for selector in _SIDEBAR_SELECTORS:
         for container in soup.select(selector):
             aria_label = str(container.get("aria-label") or "").lower()
-            raw_classes = container.get("class")
-            classes = (
-                " ".join(str(c) for c in raw_classes).lower()
-                if isinstance(raw_classes, list)
-                else str(raw_classes or "").lower()
-            )
+            classes = _tag_classes_str(container).lower()
             if "breadcrumb" in aria_label or "pagination" in classes or "table-of-contents" in classes:
                 continue
 
-            for anchor in container.find_all("a", href=True):
-                href = str(anchor["href"]).strip()
+            for node in container.find_all(["a", "li"]):
+                if node.name == "li":
+                    # Themes such as mkdocs-terminal render the active page in the sidebar as `<span class="...--active">`
+                    # without an `<a>` tag; record `base_url` at that slot so it keeps its sidebar position in `index.md`.
+                    if clean_base_url and clean_base_url not in seen and _is_active_leaf_nav_item(node):
+                        seen.add(clean_base_url)
+                        candidate_links.append(clean_base_url)
+                    continue
+                if not node.has_attr("href"):
+                    continue
+                href = str(node["href"]).strip()
                 if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
                     continue
                 abs_url = urljoin(effective_base, href) if effective_base else href

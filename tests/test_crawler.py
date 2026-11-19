@@ -614,6 +614,59 @@ async def test_bfs_strategy_streams_progress_deduplicates_redirects_and_ignores_
     ]
 
 
+async def test_bfs_strategy_discovers_links_from_404_seed_directory_page(tmp_path: Path):
+    from crawl4ai import CrawlerRunConfig
+
+    pages_by_url = {
+        "https://example.com/docs/advanced/": CrawlResult(
+            url="https://example.com/docs/advanced/",
+            html=_page("404 with sidebar"),
+            success=True,
+            status_code=404,
+            links={
+                "internal": [
+                    {"href": "https://example.com/docs/advanced/overview"},
+                    {"href": "https://example.com/docs/advanced/broken"},
+                ],
+                "external": [],
+            },
+        ),
+        "https://example.com/docs/advanced/overview": CrawlResult(
+            url="https://example.com/docs/advanced/overview",
+            html=_page("Overview"),
+            success=True,
+            status_code=200,
+            links={"internal": [], "external": []},
+        ),
+        "https://example.com/docs/advanced/broken": CrawlResult(
+            url="https://example.com/docs/advanced/broken",
+            html=_page("Broken"),
+            success=True,
+            status_code=404,
+            links={"internal": [{"href": "https://example.com/docs/advanced/from-broken"}], "external": []},
+        ),
+    }
+
+    class FakeSectionCrawler:
+        async def arun_many(self, urls: list[str], config: Any = None):
+            return [pages_by_url[u] for u in urls]
+
+    config = CrawlConfig(url="https://example.com/docs/advanced/", output_dir=tmp_path / "out", max_pages=5)
+    strategy = _link_following_bfs_strategy_cls()(
+        max_depth=2,
+        max_pages=5,
+        filter_chain=build_filter_chain(config),
+    )
+
+    results = await strategy._arun_batch("https://example.com/docs/advanced/", FakeSectionCrawler(), CrawlerRunConfig())
+
+    assert [r.url for r in results] == [
+        "https://example.com/docs/advanced/",
+        "https://example.com/docs/advanced/overview",
+        "https://example.com/docs/advanced/broken",
+    ]
+
+
 @pytest.mark.parametrize(
     ("include_patterns", "expected"),
     [
