@@ -198,6 +198,53 @@ def test_extract_sidebar_links_includes_active_leaf_item_rendered_without_anchor
     ]
 
 
+def test_extract_sidebar_links_supports_aria_current_and_ignores_non_link_controls():
+    html = """
+    <html><body>
+      <aside class="toolbar"><nav>
+        <ul><li class="is-active"><button class="active">Dark</button></li></ul>
+      </nav></aside>
+      <aside class="docs-sidebar"><nav>
+        <ul>
+          <li><button class="toggle--active">v2</button></li>
+          <li><a href="/docs/intro">Intro</a></li>
+          <li aria-current="page">Current</li>
+          <li><a href="/docs/api">API</a></li>
+        </ul>
+      </nav></aside>
+    </body></html>
+    """
+
+    links = extract_sidebar_links(html, "https://example.com/docs/current")
+
+    assert links == [
+        "https://example.com/docs/intro",
+        "https://example.com/docs/current",
+        "https://example.com/docs/api",
+    ]
+
+
+def test_extract_sidebar_links_prefers_real_anchor_over_earlier_active_badge():
+    html = """
+    <html><body>
+      <aside><nav>
+        <ul>
+          <li class="current-version"><span>v1.0</span></li>
+          <li><a href="/docs/intro">Intro</a></li>
+          <li><a href="/docs/current">Current</a></li>
+        </ul>
+      </nav></aside>
+    </body></html>
+    """
+
+    links = extract_sidebar_links(html, "https://example.com/docs/current")
+
+    assert links == [
+        "https://example.com/docs/intro",
+        "https://example.com/docs/current",
+    ]
+
+
 def test_extract_markdown_preserves_images_as_html_img_tags():
     html = """
     <html><body><main>

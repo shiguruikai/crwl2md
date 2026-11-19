@@ -775,6 +775,7 @@ class _ExtractedPage:
     title: str
     description: str
     link_base_url: str
+    description_from_meta: bool = False
 
 
 def _final_url(result: CrawlResult) -> str:
@@ -993,6 +994,7 @@ async def crawl_site(
                 title=meta.title,
                 description=meta.description,
                 link_base_url=link_base_url,
+                description_from_meta=meta.description_from_meta,
             )
         )
 
@@ -1003,10 +1005,12 @@ async def crawl_site(
         )
 
     # Many doc generators repeat a site-wide `<meta name="description">` on every page; fall back to each page's
-    # opening paragraph when a description appears on more than one crawled page.
-    description_counts = Counter(item.description for item in extracted if item.description)
+    # opening paragraph when the same meta description appears on more than one crawled page.
+    meta_description_counts = Counter(
+        item.description for item in extracted if item.description_from_meta and item.description
+    )
     for item in extracted:
-        if description_counts[item.description] >= 2:
+        if item.description_from_meta and meta_description_counts[item.description] >= 2:
             item.description = extract_first_paragraph_description(item.raw_markdown) or item.title
 
     url_to_relpath = compute_relative_paths([page.final_url for page in extracted], config.url)

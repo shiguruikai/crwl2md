@@ -135,6 +135,7 @@ class PageMetadata(BaseModel):
 
     title: str
     description: str
+    description_from_meta: bool = False
 
 
 def _extract_lang_from_attrs(tag: Tag | None, *, is_code_element: bool) -> str:
@@ -511,16 +512,18 @@ def extract_page_metadata(html: str, markdown: str, fallback_title: str = "") ->
         title = fallback_title.strip() or "Untitled"
 
     description = ""
+    description_from_meta = False
     for meta_selector in ('meta[name="description"]', 'meta[property="og:description"]'):
         meta = soup.select_one(meta_selector)
         if meta is not None and isinstance(meta.get("content"), str) and (candidate := str(meta["content"]).strip()):
             description = _truncate_text(candidate)
+            description_from_meta = True
             break
 
     if not description:
         description = extract_first_paragraph_description(markdown)
 
-    return PageMetadata(title=title, description=description or title)
+    return PageMetadata(title=title, description=description or title, description_from_meta=description_from_meta)
 
 
 def _tag_classes_str(tag: Tag) -> str:
@@ -531,7 +534,7 @@ def _tag_classes_str(tag: Tag) -> str:
 
 
 def _is_active_leaf_nav_item(li: Tag) -> bool:
-    if li.find(["ul", "ol"]) is not None or li.find("a", href=True) is not None:
+    if li.find(["ul", "ol", "button", "input", "select"]) is not None or li.find("a", href=True) is not None:
         return False
     for node in (li, *li.find_all(True)):
         if str(node.get("aria-current") or "").lower() == "page":
@@ -563,13 +566,14 @@ def extract_sidebar_links(html: str, base_url: str) -> list[str]:
             if "breadcrumb" in aria_label or "pagination" in classes or "table-of-contents" in classes:
                 continue
 
+            container_entries: list[tuple[bool, str]] = []
+            anchor_urls: set[str] = set()
             for node in container.find_all(["a", "li"]):
                 if node.name == "li":
                     # Themes such as mkdocs-terminal render the active page in the sidebar as `<span class="...--active">`
                     # without an `<a>` tag; record `base_url` at that slot so it keeps its sidebar position in `index.md`.
-                    if clean_base_url and clean_base_url not in seen and _is_active_leaf_nav_item(node):
-                        seen.add(clean_base_url)
-                        candidate_links.append(clean_base_url)
+                    if clean_base_url and _is_active_leaf_nav_item(node):
+                        container_entries.append((False, clean_base_url))
                     continue
                 if not node.has_attr("href"):
                     continue
@@ -584,6 +588,15 @@ def extract_sidebar_links(html: str, base_url: str) -> list[str]:
                     continue
 
                 clean_url = parsed._replace(fragment="").geturl()
+                anchor_urls.add(clean_url)
+                container_entries.append((True, clean_url))
+
+            # Ignore nav containers with no real document links (e.g. a linkless toolbar with an active badge).
+            if not anchor_urls:
+                continue
+            for is_anchor, clean_url in container_entries:
+                if not is_anchor and clean_url in anchor_urls:
+                    continue
                 if clean_url not in seen:
                     seen.add(clean_url)
                     candidate_links.append(clean_url)

@@ -136,6 +136,30 @@ async def test_crawl_site_replaces_duplicate_site_wide_meta_descriptions_with_fi
     assert 'description: "Configure HTTP and SOCKS5 proxies."' in (out_dir / "proxy.md").read_text(encoding="utf-8")
 
 
+async def test_crawl_site_preserves_unique_meta_description_matching_fallback_text(tmp_path: Path):
+    fake_results = [
+        CrawlResult(
+            url="https://example.com/docs/config",
+            html=(
+                '<html><head><meta name="description" content="Configuration"></head>'
+                "<body><main><h1>Config</h1><p>Detailed configuration guide.</p></main></body></html>"
+            ),
+            success=True,
+        ),
+        CrawlResult(
+            url="https://example.com/docs/other",
+            html="<html><body><main><h1>Configuration</h1><pre><code>x = 1</code></pre></main></body></html>",
+            success=True,
+        ),
+    ]
+    out_dir = tmp_path / "out"
+    config = CrawlConfig(url="https://example.com/docs/config", output_dir=out_dir, frontmatter=True)
+
+    await crawl_site(config, crawler=_FakeCrawler(fake_results))
+
+    assert 'description: "Configuration"' in (out_dir / "config.md").read_text(encoding="utf-8")
+
+
 async def test_crawl_site_reports_http_error_pages_as_failed(tmp_path: Path):
     fake_results = [
         CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True, status_code=200),
