@@ -451,6 +451,31 @@ def test_extract_markdown_detects_sphinx_code_language():
     assert "```\nplain output\n```" in md
 
 
+def test_extract_markdown_ignores_non_language_names_and_hljs_auto_detected_classes():
+    html = """
+    <html><body><main>
+      <h1>Snippets</h1>
+      <div class="highlight"><pre><code data-highlighted="yes" class="hljs language-graphql">cfg = BrowserConfig()</code></pre></div>
+      <div class="highlight"><pre><code data-highlighted="yes" class="hljs language-undefined">crwl profiles</code></pre></div>
+      <pre data-language="plaintext"><code class="language-text">plain output</code></pre>
+      <pre><code data-highlighted="yes" class="language-python hljs">import asyncio</code></pre>
+      <pre><code data-highlighted="yes" class="py hljs language-python">import os</code></pre>
+      <pre class="language-bash"><code data-highlighted="yes" class="hljs language-bash">echo ok</code></pre>
+      <pre><code class="hljs language-rust">fn main() {}</code></pre>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html)
+
+    assert "```\ncfg = BrowserConfig()\n```" in md
+    assert "```\ncrwl profiles\n```" in md
+    assert "```\nplain output\n```" in md
+    assert "```python\nimport asyncio\n```" in md
+    assert "```python\nimport os\n```" in md
+    assert "```bash\necho ok\n```" in md
+    assert "```rust\nfn main() {}\n```" in md
+
+
 def test_extract_markdown_ignores_locale_class_on_code_block_ancestors():
     html = '<html><body><main class="lang-ja"><h1>X</h1><pre><code>plain text</code></pre></main></body></html>'
 

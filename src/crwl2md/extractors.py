@@ -106,8 +106,8 @@ _SIDEBAR_SELECTORS: tuple[str, ...] = (
 _CODE_LANG_CLASS_RE = re.compile(r"^(?:language|highlight-source|highlight)-([a-zA-Z0-9_+-]+)$")
 # `lang-*` doubles as a UI-locale class on page wrappers (`lang-ja`), so it is honored only on <pre>/<code> themselves.
 _CODE_LANG_SHORT_CLASS_RE = re.compile(r"^lang-([a-zA-Z0-9_+-]+)$")
-# Sphinx emits `highlight-default` / `highlight-none` when no language is set.
-_NON_LANGUAGE_NAMES = frozenset({"default", "none"})
+# Sphinx emits `highlight-default` / `highlight-none`, and Highlight.js emits `language-undefined`, when no language is set.
+_NON_LANGUAGE_NAMES = frozenset({"default", "none", "null", "plain", "plaintext", "text", "txt", "undefined"})
 # Matches empty or symbol-only heading permalink anchors (\u200b in Docusaurus/VitePress, #/¶ in Zensical, \uf0c1 in MkDocs).
 _HEADING_ANCHOR_TEXT_RE = re.compile(r"^[\u200b#\u00b6\uf0c1\s]*$")
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
@@ -141,21 +141,26 @@ def _extract_lang_from_attrs(tag: Tag | None, *, is_code_element: bool) -> str:
         return ""
     for attr in ("data-language", "data-lang"):
         val = tag.get(attr)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
+        if isinstance(val, str) and (cleaned := val.strip()) and cleaned.lower() not in _NON_LANGUAGE_NAMES:
+            return cleaned
     classes = tag.get("class")
     if isinstance(classes, list):
         str_classes = [cls for cls in classes if isinstance(cls, str)]
+        # When Highlight.js runs in the browser on an unlabeled `<code>`, it sets `data-highlighted="yes"` and
+        # appends `hljs` followed by a guessed `language-<auto>` class. An explicit language class already on
+        # `<code>` appears before `hljs`; one placed on `<pre>` or a wrapper is picked up from that ancestor.
+        if is_code_element and tag.get("data-highlighted") == "yes" and str_classes and str_classes[0] == "hljs":
+            return ""
         for i, cls in enumerate(str_classes):
             match = _CODE_LANG_CLASS_RE.match(cls) or (
                 _CODE_LANG_SHORT_CLASS_RE.match(cls) if is_code_element else None
             )
-            if match and match.group(1) not in _NON_LANGUAGE_NAMES:
+            if match and match.group(1).lower() not in _NON_LANGUAGE_NAMES:
                 return match.group(1)
             # MDN SyntaxHighlighter emits `class="brush: js notranslate"`, tokenized as ["brush:", "js", ...].
             if cls == "brush:" and i + 1 < len(str_classes):
                 next_cls = str_classes[i + 1].strip(";")
-                if next_cls and next_cls != "notranslate":
+                if next_cls and next_cls != "notranslate" and next_cls.lower() not in _NON_LANGUAGE_NAMES:
                     return next_cls
     return ""
 
