@@ -353,6 +353,19 @@ def _link_following_bfs_strategy_cls() -> type[BFSDeepCrawlStrategy]:
     return _LinkFollowingBFSStrategy
 
 
+_DESKTOP_CHROME_UA: str | None = None
+
+
+async def _get_desktop_chrome_user_agent() -> str:
+    global _DESKTOP_CHROME_UA
+    if _DESKTOP_CHROME_UA is None:
+        from playwright.async_api import async_playwright
+
+        async with async_playwright() as playwright:
+            _DESKTOP_CHROME_UA = str(playwright.devices["Desktop Chrome"]["user_agent"])
+    return _DESKTOP_CHROME_UA
+
+
 def _create_browser_crawler(browser_config: BrowserConfig) -> Any:
     from crawl4ai import AsyncWebCrawler
 
@@ -534,7 +547,12 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
         # Crawl4AI prints a promotional banner unless told otherwise; an explicit user setting still wins.
         os.environ.setdefault("CRAWL4AI_NO_CLOUD_NOTICE", "1")
         # text_mode skips image requests since web2md only extracts HTML and keeps image URLs.
-        browser_config = BrowserConfig(headless=True, text_mode=True, verbose=config.verbose)
+        browser_config = BrowserConfig(
+            headless=True,
+            text_mode=True,
+            user_agent=await _get_desktop_chrome_user_agent(),
+            verbose=config.verbose,
+        )
         try:
             async with _create_browser_crawler(browser_config) as active_crawler:
                 raw_results = await active_crawler.arun(config.url, config=run_config)

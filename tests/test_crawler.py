@@ -510,6 +510,9 @@ async def test_crawl_site_disables_image_loading_in_browser_config(tmp_path: Pat
     assert len(captured) == 1
     assert captured[0].headless is True
     assert captured[0].text_mode is True
+    assert "Chrome/" in captured[0].user_agent
+    assert "HeadlessChrome" not in captured[0].user_agent
+    assert "Chrome/116.0.0.0" not in captured[0].user_agent
 
 
 @pytest.mark.parametrize(("preset", "expected"), [(None, "1"), ("0", "0")])
