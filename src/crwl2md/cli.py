@@ -52,6 +52,16 @@ def _at_least[NumberT: (int, float)](minimum: NumberT) -> Callable[[str], Number
     return parse
 
 
+def _greater_than(minimum: float) -> Callable[[str], float]:
+    def parse(value: str) -> float:
+        number = float(value)
+        if number <= minimum:
+            raise argparse.ArgumentTypeError(f"must be greater than {minimum}")
+        return number
+
+    return parse
+
+
 def _add_frontmatter_options(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument(
         "--frontmatter",
@@ -99,10 +109,22 @@ def _add_browser_options(subparser: argparse.ArgumentParser) -> None:
         help="Enable stealth mode and navigator overrides to reduce anti-bot blocking.",
     )
     subparser.add_argument(
+        "--headed",
+        action="store_true",
+        help="Run Chromium in a visible window instead of headless mode (useful with --stealth or debugging).",
+    )
+    subparser.add_argument(
         "--wait-for",
         default=None,
         metavar="CONDITION",
         help="CSS selector or 'js:() => ...' condition to wait for before extracting HTML.",
+    )
+    subparser.add_argument(
+        "--wait-for-timeout",
+        type=_greater_than(0.0),
+        default=None,
+        metavar="SECONDS",
+        help="Seconds to wait for --wait-for before timing out (default: 15 when --wait-for is set, 5 otherwise).",
     )
     subparser.add_argument(
         "--scan-full-page",
@@ -208,7 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     setup_parser = subparsers.add_parser(
         "setup",
-        help="Download the headless browser used for fetching URLs (about 290 MB). Run once after installing or upgrading.",
+        help="Download the Chromium browser used for fetching URLs. Run once after installing or upgrading.",
     )
     setup_parser.add_argument(
         "--with-deps",
@@ -284,7 +306,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "setup":
             install_browser(with_deps=args.with_deps)
-            print("The headless browser is ready.")
+            print("The Chromium browser is ready.")
             return 0
 
         frontmatter_fields = (
@@ -302,7 +324,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     user_data_dir=args.user_data_dir,
                     proxy=args.proxy,
                     stealth=args.stealth,
+                    headed=args.headed,
                     wait_for=args.wait_for,
+                    wait_for_timeout=args.wait_for_timeout,
                     scan_full_page=args.scan_full_page,
                     flatten_shadow_dom=args.flatten_shadow_dom,
                 )
@@ -336,7 +360,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 user_data_dir=args.user_data_dir,
                 proxy=args.proxy,
                 stealth=args.stealth,
+                headed=args.headed,
                 wait_for=args.wait_for,
+                wait_for_timeout=args.wait_for_timeout,
                 scan_full_page=args.scan_full_page,
                 flatten_shadow_dom=args.flatten_shadow_dom,
                 frontmatter=args.frontmatter or frontmatter_fields is not None,

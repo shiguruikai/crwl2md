@@ -933,11 +933,11 @@ async def test_crawl_site_propagates_other_browser_errors(tmp_path: Path, monkey
 @pytest.mark.parametrize(
     ("with_deps", "expected_args"),
     [
-        (False, ["install", "chromium", "--only-shell"]),
-        (True, ["install", "--with-deps", "chromium", "--only-shell"]),
+        (False, ["install", "chromium"]),
+        (True, ["install", "--with-deps", "chromium"]),
     ],
 )
-def test_install_browser_downloads_headless_shell_with_this_environments_playwright(
+def test_install_browser_downloads_chromium_with_this_environments_playwright(
     monkeypatch: pytest.MonkeyPatch, with_deps: bool, expected_args: list[str]
 ):
     commands: list[list[str]] = []
@@ -1226,6 +1226,7 @@ async def test_crawl_site_forwards_auth_stealth_proxy_and_dynamic_page_options(
     assert b_cfg.headers["Authorization"] == "Bearer secret"
     assert b_cfg.headers["Accept-Language"] == "ja"
     assert b_cfg.storage_state == str(state_file)
+    assert b_cfg.headless is True
     assert b_cfg.enable_stealth is True
     assert b_cfg.text_mode is False
     assert b_cfg.proxy_config.server == "http://proxy.example.com:8080"
@@ -1233,7 +1234,7 @@ async def test_crawl_site_forwards_auth_stealth_proxy_and_dynamic_page_options(
     assert r_cfg.proxy_config.server == "http://proxy.example.com:8080"
     assert r_cfg.wait_until == "load"
     assert r_cfg.wait_for == "css:.ready"
-    assert r_cfg.wait_for_timeout is None
+    assert r_cfg.wait_for_timeout == 15000
     assert r_cfg.scan_full_page is True
     assert r_cfg.flatten_shadow_dom is True
     assert r_cfg.simulate_user is True
@@ -1244,6 +1245,7 @@ async def test_convert_single_forwards_user_data_dir_to_persistent_browser_confi
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     captured_browser_configs: list[Any] = []
+    captured_run_configs: list[Any] = []
     profile_dir = tmp_path / "chrome-profile"
     profile_dir.mkdir()
 
@@ -1254,18 +1256,33 @@ async def test_convert_single_forwards_user_data_dir_to_persistent_browser_confi
         async def __aexit__(self, *exc_info: object) -> None:
             return None
 
+        async def arun(
+            self, url: str, config: Any = None
+        ) -> list[CrawlResult] | list[CrawlResultContainer[CrawlResult]]:
+            captured_run_configs.append(config)
+            return await super().arun(url, config=config)
+
     results = [CrawlResult(url="https://example.com/docs/page", html=_page("Page"), success=True, status_code=200)]
     monkeypatch.setattr(
         "crwl2md.crawler._create_browser_crawler",
         lambda cfg: (captured_browser_configs.append(cfg), FakeBrowserCrawler(results))[1],
     )
 
-    md = await convert_single("https://example.com/docs/page", user_data_dir=profile_dir)
+    md = await convert_single(
+        "https://example.com/docs/page",
+        user_data_dir=profile_dir,
+        headed=True,
+        wait_for=".ready",
+        wait_for_timeout=30.0,
+    )
 
     assert md.startswith("# Page\n")
     assert captured_browser_configs[0].use_persistent_context is True
     assert captured_browser_configs[0].user_data_dir == str(profile_dir)
+    assert captured_browser_configs[0].headless is False
     assert captured_browser_configs[0].text_mode is True
+    assert captured_run_configs[0].wait_for == ".ready"
+    assert captured_run_configs[0].wait_for_timeout == 30000
 
 
 def test_build_proxy_config_parses_all_supported_formats():
@@ -1340,3 +1357,5 @@ async def test_convert_single_rejects_blank_wait_for(tmp_path: Path):
 
     with pytest.raises(ValueError, match="wait_for must not be empty"):
         await convert_single(str(html_file), wait_for="   ")
+    with pytest.raises(ValueError, match="wait_for_timeout must be greater than 0"):
+        await convert_single(str(html_file), wait_for_timeout=0)

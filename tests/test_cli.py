@@ -95,7 +95,9 @@ def test_cli_convert_forwards_browser_options(tmp_path: Path, monkeypatch: pytes
             *("--storage-state", str(state_file)),
             *("--proxy", "127.0.0.1:8080"),
             "--stealth",
+            "--headed",
             *("--wait-for", ".content"),
+            *("--wait-for-timeout", "25"),
             "--scan-full-page",
             "--flatten-shadow-dom",
         ]
@@ -107,7 +109,9 @@ def test_cli_convert_forwards_browser_options(tmp_path: Path, monkeypatch: pytes
     assert captured[0]["storage_state"] == state_file
     assert captured[0]["proxy"] == "127.0.0.1:8080"
     assert captured[0]["stealth"] is True
+    assert captured[0]["headed"] is True
     assert captured[0]["wait_for"] == ".content"
+    assert captured[0]["wait_for_timeout"] == 25.0
     assert captured[0]["scan_full_page"] is True
     assert captured[0]["flatten_shadow_dom"] is True
 
@@ -184,7 +188,9 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
             *("--header", "Authorization: Bearer tok"),
             *("--proxy", "127.0.0.1:8080"),
             "--stealth",
+            "--headed",
             *("--wait-for", ".content"),
+            *("--wait-for-timeout", "20"),
             "--scan-full-page",
             "--flatten-shadow-dom",
         ]
@@ -201,9 +207,18 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
     assert (received[0].delay, received[0].concurrency) == (1.5, 2)
     assert received[0].headers == {"Authorization": "Bearer tok"}
     assert received[0].proxy == "127.0.0.1:8080"
-    assert (received[0].stealth, received[0].wait_for, received[0].scan_full_page, received[0].flatten_shadow_dom) == (
+    assert (
+        received[0].stealth,
+        received[0].headed,
+        received[0].wait_for,
+        received[0].wait_for_timeout,
+        received[0].scan_full_page,
+        received[0].flatten_shadow_dom,
+    ) == (
+        True,
         True,
         ".content",
+        20.0,
         True,
         True,
     )
@@ -345,7 +360,14 @@ def test_cli_crawl_reports_invalid_regex_pattern(tmp_path: Path, capsys: pytest.
 
 
 @pytest.mark.parametrize(
-    "option", [["--max-depth", "-1"], ["--max-pages", "0"], ["--delay", "-0.5"], ["--concurrency", "0"]]
+    "option",
+    [
+        ["--max-depth", "-1"],
+        ["--max-pages", "0"],
+        ["--delay", "-0.5"],
+        ["--concurrency", "0"],
+        ["--wait-for-timeout", "0"],
+    ],
 )
 def test_cli_crawl_rejects_out_of_range_limits(tmp_path: Path, option: list[str], capsys: pytest.CaptureFixture[str]):
     with pytest.raises(SystemExit) as exc_info:

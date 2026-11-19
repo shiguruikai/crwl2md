@@ -63,6 +63,7 @@ _CONTENT_READY_JS = (
     "}"
 )
 _CONTENT_WAIT_TIMEOUT_MS = 5000
+_CUSTOM_WAIT_TIMEOUT_MS = 15000
 
 
 def validate_http_url(url: str) -> str:
@@ -184,6 +185,14 @@ def _validate_storage_and_profile(
         raise ValueError(f"User data path exists and is not a directory: {user_data_dir}")
 
 
+def _validate_wait_for_timeout(timeout: float | None) -> float | None:
+    if timeout is None:
+        return None
+    if timeout <= 0:
+        raise ValueError("wait_for_timeout must be greater than 0.")
+    return float(timeout)
+
+
 @dataclass(frozen=True)
 class _BrowserFetchOptions:
     headers: dict[str, str] = field(default_factory=dict)
@@ -191,7 +200,9 @@ class _BrowserFetchOptions:
     user_data_dir: Path | None = None
     proxy: str | None = None
     stealth: bool = False
+    headed: bool = False
     wait_for: str | None = None
+    wait_for_timeout: float | None = None
     scan_full_page: bool = False
     flatten_shadow_dom: bool = False
     verbose: bool = False
@@ -220,7 +231,9 @@ class CrawlConfig(BaseModel):
     user_data_dir: Path | None = None
     proxy: str | None = None
     stealth: bool = False
+    headed: bool = False
     wait_for: str | None = None
+    wait_for_timeout: float | None = Field(default=None, gt=0)
     scan_full_page: bool = False
     flatten_shadow_dom: bool = False
     frontmatter: bool = False
@@ -286,19 +299,20 @@ class CrawlSummary(BaseModel):
 
 
 class BrowserNotInstalledError(RuntimeError):
-    """Raised when the headless browser that crawling needs has not been downloaded."""
+    """Raised when the Chromium browser that crawling needs has not been downloaded."""
 
 
 def install_browser(*, with_deps: bool = False) -> None:
-    """Download the headless Chromium build that the installed Playwright version requires.
+    """Download the Chromium browser build that the installed Playwright version requires.
 
     Set `with_deps=True` on Linux to also install missing OS libraries (may prompt for sudo).
     """
     # Playwright pins one browser build per release, so the download must go through this environment's Playwright.
+    # Installing full `chromium` (rather than `--only-shell`) covers both headless mode and `--headed`.
     command = [sys.executable, "-m", "playwright", "install"]
     if with_deps:
         command.append("--with-deps")
-    command.extend(["chromium", "--only-shell"])
+    command.append("chromium")
     result = subprocess.run(command, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"Browser download failed (playwright exited with code {result.returncode}).")
@@ -353,7 +367,7 @@ async def _arun_with_browser(
     # text_mode skips image/font requests in normal crawls, but disables WebGL and blocks assets that anti-bot
     # checks inspect, so keep full rendering enabled when stealth mode is active.
     browser_kwargs: dict[str, Any] = {
-        "headless": True,
+        "headless": not opts.headed,
         "text_mode": not opts.stealth,
         "user_agent": await _get_desktop_chrome_user_agent(),
         "headers": dict(opts.headers),
@@ -373,12 +387,12 @@ async def _arun_with_browser(
         msg = str(exc)
         if "Executable doesn't exist" in msg:
             raise BrowserNotInstalledError(
-                "The headless browser is not installed, or it does not match the installed Playwright version. "
+                "The Chromium browser is not installed, or it does not match the installed Playwright version. "
                 "Run `crwl2md setup` (or call `crwl2md.install_browser()`) to download it."
             ) from exc
         if "Host system is missing dependencies" in msg or "error while loading shared libraries" in msg:
             raise BrowserNotInstalledError(
-                "System libraries required by the headless browser are missing. "
+                "System libraries required by Chromium are missing. "
                 "Run `crwl2md setup --with-deps` (or call `crwl2md.install_browser(with_deps=True)`) to install them."
             ) from exc
         raise
@@ -396,6 +410,12 @@ def _build_crawler_run_config(
 
     proxy_cfg = _build_proxy_config(options.proxy)
     wait_for = options.wait_for if options.wait_for is not None else _CONTENT_READY_JS
+    if options.wait_for_timeout is not None:
+        wait_for_timeout_ms = max(1, round(options.wait_for_timeout * 1000))
+    elif options.wait_for is not None:
+        wait_for_timeout_ms = _CUSTOM_WAIT_TIMEOUT_MS
+    else:
+        wait_for_timeout_ms = _CONTENT_WAIT_TIMEOUT_MS
     # `prefetch=True` returns raw HTML and links without running Crawl4AI's own HTML cleaner or html2text converter.
     # Anti-bot sensors often run after `domcontentloaded`, so stealth mode waits for the `load` event.
     run_kwargs: dict[str, Any] = {
@@ -405,6 +425,7 @@ def _build_crawler_run_config(
         "proxy_config": proxy_cfg,
         "wait_until": "load" if options.stealth else "domcontentloaded",
         "wait_for": wait_for,
+        "wait_for_timeout": wait_for_timeout_ms,
         "scan_full_page": options.scan_full_page,
         "flatten_shadow_dom": options.flatten_shadow_dom,
         "simulate_user": options.stealth,
@@ -415,8 +436,6 @@ def _build_crawler_run_config(
         "semaphore_count": semaphore_count,
         "verbose": options.verbose,
     }
-    if options.wait_for is None:
-        run_kwargs["wait_for_timeout"] = _CONTENT_WAIT_TIMEOUT_MS
     return CrawlerRunConfig(**run_kwargs)
 
 
@@ -463,14 +482,16 @@ async def convert_single(
     user_data_dir: str | PathLike[str] | None = None,
     proxy: str | None = None,
     stealth: bool = False,
+    headed: bool = False,
     wait_for: str | None = None,
+    wait_for_timeout: float | None = None,
     scan_full_page: bool = False,
     flatten_shadow_dom: bool = False,
     crawler: Any | None = None,
 ) -> str:
     """Convert a single HTTP(S) URL, `file://` URI, or local HTML file path into Markdown.
 
-    HTTP(S) URLs are rendered with the headless browser; `crawler` replaces it for tests.
+    HTTP(S) URLs are rendered with Chromium; `crawler` replaces it for tests.
     """
     resolved_fields = _resolve_frontmatter_fields(frontmatter, frontmatter_fields)
     parsed_headers = parse_headers(headers)
@@ -483,6 +504,7 @@ async def convert_single(
         cleaned_wait_for = wait_for.strip()
         if not cleaned_wait_for:
             raise ValueError("wait_for must not be empty.")
+    validated_wait_timeout = _validate_wait_for_timeout(wait_for_timeout)
 
     if isinstance(source, str) and source.startswith(("http://", "https://")):
         options = _BrowserFetchOptions(
@@ -491,7 +513,9 @@ async def convert_single(
             user_data_dir=resolved_profile,
             proxy=validated_proxy,
             stealth=stealth,
+            headed=headed,
             wait_for=cleaned_wait_for,
+            wait_for_timeout=validated_wait_timeout,
             scan_full_page=scan_full_page,
             flatten_shadow_dom=flatten_shadow_dom,
         )
@@ -529,7 +553,9 @@ def convert_single_sync(
     user_data_dir: str | PathLike[str] | None = None,
     proxy: str | None = None,
     stealth: bool = False,
+    headed: bool = False,
     wait_for: str | None = None,
+    wait_for_timeout: float | None = None,
     scan_full_page: bool = False,
     flatten_shadow_dom: bool = False,
     crawler: Any | None = None,
@@ -545,7 +571,9 @@ def convert_single_sync(
             user_data_dir=user_data_dir,
             proxy=proxy,
             stealth=stealth,
+            headed=headed,
             wait_for=wait_for,
+            wait_for_timeout=wait_for_timeout,
             scan_full_page=scan_full_page,
             flatten_shadow_dom=flatten_shadow_dom,
             crawler=crawler,
@@ -1051,7 +1079,9 @@ async def crawl_site(
         user_data_dir=config.user_data_dir,
         proxy=config.proxy,
         stealth=config.stealth,
+        headed=config.headed,
         wait_for=config.wait_for,
+        wait_for_timeout=config.wait_for_timeout,
         scan_full_page=config.scan_full_page,
         flatten_shadow_dom=config.flatten_shadow_dom,
         verbose=config.verbose,

@@ -19,7 +19,7 @@ uv tool install crwl2md
 pipx install crwl2md
 pip install crwl2md
 
-# URL 取得に使うヘッドレスブラウザをダウンロード（約 290 MB）
+# URL 取得に使う Chromium ブラウザをダウンロード
 crwl2md setup
 ```
 
@@ -63,7 +63,7 @@ positional arguments:
   {convert,crawl,setup}
     convert             Convert a single URL or local HTML file to Markdown.
     crawl               Crawl a documentation website and generate Markdown files with index.md TOCs.
-    setup               Download the headless browser used for fetching URLs (about 290 MB). Run once after installing or upgrading.
+    setup               Download the Chromium browser used for fetching URLs. Run once after installing or upgrading.
 
 options:
   -h, --help            show this help message and exit
@@ -73,7 +73,7 @@ options:
 ### `crwl2md convert --help`
 
 ```text
-usage: crwl2md convert [-h] [-o OUTPUT] [--header NAME:VALUE] [--storage-state PATH] [--user-data-dir PATH] [--proxy PROXY] [--stealth] [--wait-for CONDITION] [--scan-full-page] [--flatten-shadow-dom] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] source
+usage: crwl2md convert [-h] [-o OUTPUT] [--header NAME:VALUE] [--storage-state PATH] [--user-data-dir PATH] [--proxy PROXY] [--stealth] [--headed] [--wait-for CONDITION] [--wait-for-timeout SECONDS] [--scan-full-page] [--flatten-shadow-dom] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] source
 
 positional arguments:
   source                Source URL, file:// URI, or local HTML file path.
@@ -86,7 +86,10 @@ options:
   --user-data-dir PATH  Persistent Chromium profile directory to reuse logged-in sessions.
   --proxy PROXY         Proxy server ('http://host:port', 'socks5://host:port', 'http://user:pass@host:port', or 'host:port:user:pass').
   --stealth             Enable stealth mode and navigator overrides to reduce anti-bot blocking.
+  --headed              Run Chromium in a visible window instead of headless mode (useful with --stealth or debugging).
   --wait-for CONDITION  CSS selector or 'js:() => ...' condition to wait for before extracting HTML.
+  --wait-for-timeout SECONDS
+                        Seconds to wait for --wait-for before timing out (default: 15 when --wait-for is set, 5 otherwise).
   --scan-full-page      Scroll from top to bottom before extracting HTML so lazy-loaded content renders.
   --flatten-shadow-dom  Inline open and closed Shadow DOM trees into the HTML before conversion.
   --frontmatter         Prepend YAML frontmatter to output Markdown.
@@ -97,7 +100,7 @@ options:
 ### `crwl2md crawl --help`
 
 ```text
-usage: crwl2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--force] [--header NAME:VALUE] [--storage-state PATH] [--user-data-dir PATH] [--proxy PROXY] [--stealth] [--wait-for CONDITION] [--scan-full-page] [--flatten-shadow-dom] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [--no-progress] [-v] url
+usage: crwl2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--force] [--header NAME:VALUE] [--storage-state PATH] [--user-data-dir PATH] [--proxy PROXY] [--stealth] [--headed] [--wait-for CONDITION] [--wait-for-timeout SECONDS] [--scan-full-page] [--flatten-shadow-dom] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [--no-progress] [-v] url
 
 positional arguments:
   url                   Seed URL to start crawling from.
@@ -119,7 +122,10 @@ options:
   --user-data-dir PATH  Persistent Chromium profile directory to reuse logged-in sessions.
   --proxy PROXY         Proxy server ('http://host:port', 'socks5://host:port', 'http://user:pass@host:port', or 'host:port:user:pass').
   --stealth             Enable stealth mode and navigator overrides to reduce anti-bot blocking.
+  --headed              Run Chromium in a visible window instead of headless mode (useful with --stealth or debugging).
   --wait-for CONDITION  CSS selector or 'js:() => ...' condition to wait for before extracting HTML.
+  --wait-for-timeout SECONDS
+                        Seconds to wait for --wait-for before timing out (default: 15 when --wait-for is set, 5 otherwise).
   --scan-full-page      Scroll from top to bottom before extracting HTML so lazy-loaded content renders.
   --flatten-shadow-dom  Inline open and closed Shadow DOM trees into the HTML before conversion.
   --frontmatter         Prepend YAML frontmatter to output Markdown.
@@ -255,6 +261,7 @@ output/
 - インライン SVG で描かれた図は出力されません。
 - 出力先にファイルが既に存在する場合は上書きを防ぐため終了します。既存の出力先へ再クロールするときは `--force` を指定してください。なお、`--force` を指定しても前回のクロールで作られ今回は作られなかったファイルは削除しません。
 - `--header` で指定したヘッダーは、ブラウザが行うすべてのリクエスト（外部 CDN やサードパーティスクリプトを含む）に送信されます。特定サイト向けの認証には `--storage-state` や `--user-data-dir` の利用を推奨します。
+- ボット対策が厳しいサイトでは、GUI 環境で `--stealth --headed` を併用するとヘッドレス判定を回避しやすくなります。
 
 ## ライセンス
 

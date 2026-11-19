@@ -23,7 +23,7 @@
 ## コマンド
 
 - 定型操作は [Taskfile.yml](Taskfile.yml) に集約しており、`task <TASK>`（`setup`, `format`, `lint`, `test`）で実行する。
-- `crawl` が使うヘッドレスブラウザは `uv run crwl2md setup` でダウンロードする（`task setup` に含まれる）。テストはブラウザを使わない。
+- `crawl` が使う Chromium ブラウザは `uv run crwl2md setup` でダウンロードする（`task setup` に含まれる）。テストはブラウザを使わない。
 - 抽出結果と目次生成のベンチマークは [scripts/compare_methods.py](scripts/compare_methods.py) を `uv run python` で実行する。
 
 ## 構成
