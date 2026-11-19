@@ -171,6 +171,21 @@ for page in summary.failed_pages:
 
 グロブの `*` はパスの1階層の中だけに、`**` は複数の階層に一致します。末尾の `/**` はそのディレクトリ自体にも一致し、途中の `/**/` は階層が0個の場合にも一致します。
 
+旧バージョンや他言語のディレクトリが範囲に含まれてしまう場合は、`--exclude` で除外できます。
+
+```bash
+# 旧バージョン（2.x、3.0.1、next など）を除外
+web2md crawl https://docusaurus.io/docs \
+  --exclude '^https://docusaurus\.io/docs/(next|\d[\d.x]*)(/|$)' \
+  -o ./output/docusaurus
+
+# 英語以外の言語ディレクトリを除外
+web2md crawl https://example.com/docs/ \
+  --exclude '/docs/fr/**' \
+  --exclude '/docs/de/**' \
+  -o ./output/docs
+```
+
 ## 出力の構成
 
 ```text

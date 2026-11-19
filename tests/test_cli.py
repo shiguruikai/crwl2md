@@ -183,6 +183,37 @@ def test_cli_crawl_warns_when_in_scope_links_were_not_fetched(
     assert expected_fragment in capsys.readouterr().err
 
 
+def test_cli_crawl_prints_top_level_directory_breakdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    async def fake_crawl_site(config: CrawlConfig) -> CrawlSummary:
+        return CrawlSummary(
+            seed_url=config.url,
+            output_dir=config.output_dir,
+            page_count=4,
+            toc_count=3,
+            failed_pages=[],
+            skipped_urls=[],
+            files=[
+                "2.x/a.md",
+                "2.x/b.md",
+                "2.x/index.md",
+                "guides/intro.md",
+                "guides/index.md",
+                "index.md",
+                "overview.md",
+            ],
+        )
+
+    monkeypatch.setattr("web2md.cli.crawl_site", fake_crawl_site)
+
+    exit_code = main(["crawl", "https://example.com/docs/", "-o", str(tmp_path)])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Pages by top-level directory:\n  - 2.x/: 2 pages\n  - (root): 1 page\n  - guides/: 1 page\n" in stdout
+
+
 def test_cli_crawl_reports_invalid_regex_pattern(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     exit_code = main(["crawl", "https://example.com/docs/", "-o", str(tmp_path), "--include", "^("])
 

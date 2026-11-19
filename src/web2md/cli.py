@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import re
 import sys
+from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -146,6 +147,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _summarize_top_level_dirs(files: Sequence[str]) -> list[tuple[str, int]]:
+    counts: Counter[str] = Counter()
+    for relpath in files:
+        if relpath == "index.md" or relpath.endswith("/index.md"):
+            continue
+        top_dir = f"{relpath.split('/', 1)[0]}/" if "/" in relpath else "(root)"
+        counts[top_dir] += 1
+    if not any(name != "(root)" for name in counts):
+        return []
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+
+
 def _format_unfetched_warning(summary: CrawlSummary, config: CrawlConfig) -> str:
     count = summary.unfetched_in_scope_links
     noun = "link was" if count == 1 else "links were"
@@ -221,6 +234,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 f"Crawled {summary.page_count} pages and generated {summary.toc_count} index files in {summary.output_dir}"
             )
+            if dir_counts := _summarize_top_level_dirs(summary.files):
+                print("Pages by top-level directory:")
+                for dir_name, count in dir_counts:
+                    noun = "page" if count == 1 else "pages"
+                    print(f"  - {dir_name}: {count} {noun}")
             if summary.seed_redirected_to:
                 print(
                     f"Warning: the seed URL was redirected to {summary.seed_redirected_to}, outside the crawl scope, "
