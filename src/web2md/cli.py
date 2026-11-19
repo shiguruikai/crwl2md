@@ -136,9 +136,14 @@ def build_parser() -> argparse.ArgumentParser:
     _add_frontmatter_options(crawl_parser)
     crawl_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose crawler logging.")
 
-    subparsers.add_parser(
+    setup_parser = subparsers.add_parser(
         "setup",
         help="Download the headless browser used for fetching URLs (about 290 MB). Run once after installing or upgrading.",
+    )
+    setup_parser.add_argument(
+        "--with-deps",
+        action="store_true",
+        help="Also install OS-level libraries required by Chromium on Linux (may prompt for sudo).",
     )
 
     return parser
@@ -183,7 +188,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         if args.command == "setup":
-            install_browser()
+            install_browser(with_deps=args.with_deps)
             print("The headless browser is ready.")
             return 0
 

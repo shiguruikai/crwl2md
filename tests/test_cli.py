@@ -232,19 +232,25 @@ def test_cli_crawl_rejects_out_of_range_limits(tmp_path: Path, option: list[str]
     assert f"argument {option[0]}: must be" in capsys.readouterr().err
 
 
-def test_cli_setup_downloads_browser(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
-    calls: list[str] = []
-    monkeypatch.setattr("web2md.cli.install_browser", lambda: calls.append("install"))
+@pytest.mark.parametrize(("argv", "expected_with_deps"), [(["setup"], False), (["setup", "--with-deps"], True)])
+def test_cli_setup_downloads_browser(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+    expected_with_deps: bool,
+):
+    calls: list[bool] = []
+    monkeypatch.setattr("web2md.cli.install_browser", lambda *, with_deps=False: calls.append(with_deps))
 
-    exit_code = main(["setup"])
+    exit_code = main(argv)
 
     assert exit_code == 0
-    assert calls == ["install"]
+    assert calls == [expected_with_deps]
     assert "ready" in capsys.readouterr().out
 
 
 def test_cli_setup_reports_failed_download(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
-    def fail() -> None:
+    def fail(*, with_deps: bool = False) -> None:
         raise RuntimeError("Browser download failed (playwright exited with code 1).")
 
     monkeypatch.setattr("web2md.cli.install_browser", fail)

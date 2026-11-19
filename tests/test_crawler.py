@@ -583,6 +583,23 @@ async def test_crawl_site_explains_how_to_install_missing_browser(tmp_path: Path
         await crawl_site(config)
 
 
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "BrowserType.launch: Host system is missing dependencies to run browsers.",
+        "BrowserType.launch: chrome-headless-shell: error while loading shared libraries: libnss3.so",
+    ],
+)
+async def test_crawl_site_explains_how_to_install_missing_system_libraries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_message: str
+):
+    _fail_browser_launch(monkeypatch, error_message)
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
+
+    with pytest.raises(BrowserNotInstalledError, match="web2md setup --with-deps"):
+        await crawl_site(config)
+
+
 async def test_crawl_site_propagates_other_browser_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _fail_browser_launch(monkeypatch, "BrowserType.launch: Target page, context or browser has been closed")
     config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
@@ -591,7 +608,16 @@ async def test_crawl_site_propagates_other_browser_errors(tmp_path: Path, monkey
         await crawl_site(config)
 
 
-def test_install_browser_downloads_headless_shell_with_this_environments_playwright(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize(
+    ("with_deps", "expected_args"),
+    [
+        (False, ["install", "chromium", "--only-shell"]),
+        (True, ["install", "--with-deps", "chromium", "--only-shell"]),
+    ],
+)
+def test_install_browser_downloads_headless_shell_with_this_environments_playwright(
+    monkeypatch: pytest.MonkeyPatch, with_deps: bool, expected_args: list[str]
+):
     commands: list[list[str]] = []
 
     def fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -600,9 +626,9 @@ def test_install_browser_downloads_headless_shell_with_this_environments_playwri
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    install_browser()
+    install_browser(with_deps=with_deps)
 
-    assert commands == [[sys.executable, "-m", "playwright", "install", "chromium", "--only-shell"]]
+    assert commands == [[sys.executable, "-m", "playwright", *expected_args]]
 
 
 def test_install_browser_reports_failed_download(monkeypatch: pytest.MonkeyPatch):

@@ -24,6 +24,7 @@ web2md setup
 
 - `web2md` コマンドが見つからない場合は `uv tool update-shell` を実行し、シェルを再起動してください。
 - `web2md setup` は、URL を取得する `crawl` と `convert <URL>` で必要です。ローカル HTML ファイルの変換（`convert <PATH>`）はブラウザなしで動きます。
+- Linux 環境で Chromium の依存ライブラリ（`libnss3` など）が不足している場合は、`web2md setup --with-deps` を実行してください（必要に応じて `sudo` が求められます）。
 - `uv tool upgrade web2md` で更新したあとも `web2md setup` を実行してください。ブラウザは Playwright のバージョンごとに決まったビルドが必要で、ブラウザだけを更新することはできません。合っていない場合、`crawl` や `convert <URL>` は `web2md setup` の実行を求めて終了します。
 - PyPI には、別の作者による同名のパッケージ `web2md` があります。`uv tool install web2md` や `uvx web2md` のように名前だけを指定すると、そちらがインストールされます。上記のとおり、リポジトリの URL またはパスを指定してください。
 
@@ -54,7 +55,7 @@ positional arguments:
   {convert,crawl,setup}
     convert             Convert a single URL or local HTML file to Markdown.
     crawl               Crawl a documentation website and generate Markdown files with index.md TOCs.
-    setup               Download the headless browser that crawl needs (about 290 MB). Run once after installing or upgrading.
+    setup               Download the headless browser used for fetching URLs (about 290 MB). Run once after installing or upgrading.
 
 options:
   -h, --help            show this help message and exit
@@ -80,7 +81,7 @@ options:
 ### `web2md crawl --help`
 
 ```text
-usage: web2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
+usage: web2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--force] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
 
 positional arguments:
   url                   Seed URL to start crawling from.
@@ -88,7 +89,7 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   -o, --output OUTPUT   Output directory for Markdown files and index.md.
-  --max-depth N         Maximum crawl depth (default: 2).
+  --max-depth N         Maximum number of link hops from the seed page (0 = seed page only, default: unlimited).
   --max-pages N         Maximum number of pages (default: 100).
   --include INCLUDE     URL pattern to crawl: glob or regex, repeatable. Replaces the default seed-directory scope.
   --exclude EXCLUDE     URL pattern to skip: glob or regex, repeatable.
@@ -96,10 +97,21 @@ options:
   --delay SECONDS       Seconds to wait before each batch of concurrent requests (default: 0.1).
   --concurrency N       Maximum number of pages fetched at the same time (default: 5).
   --respect-robots      Skip pages that the site's robots.txt disallows.
+  --force               Allow writing into a non-empty output directory and overwriting existing files.
   --frontmatter         Prepend YAML frontmatter to output Markdown.
   --frontmatter-fields FRONTMATTER_FIELDS
                         Comma-separated YAML frontmatter fields (title,description,source,timestamp). Enables frontmatter when set.
   -v, --verbose         Enable verbose crawler logging.
+```
+
+### `web2md setup --help`
+
+```text
+usage: web2md setup [-h] [--with-deps]
+
+options:
+  -h, --help   show this help message and exit
+  --with-deps  Also install OS-level libraries required by Chromium on Linux (may prompt for sudo).
 ```
 
 ### 実行例

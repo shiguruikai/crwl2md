@@ -132,10 +132,16 @@ class BrowserNotInstalledError(RuntimeError):
     """Raised when the headless browser that crawling needs has not been downloaded."""
 
 
-def install_browser() -> None:
-    """Download the headless Chromium build that the installed Playwright version requires."""
+def install_browser(*, with_deps: bool = False) -> None:
+    """Download the headless Chromium build that the installed Playwright version requires.
+
+    Set `with_deps=True` on Linux to also install missing OS libraries (may prompt for sudo).
+    """
     # Playwright pins one browser build per release, so the download must go through this environment's Playwright.
-    command = [sys.executable, "-m", "playwright", "install", "chromium", "--only-shell"]
+    command = [sys.executable, "-m", "playwright", "install"]
+    if with_deps:
+        command.append("--with-deps")
+    command.extend(["chromium", "--only-shell"])
     result = subprocess.run(command, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"Browser download failed (playwright exited with code {result.returncode}).")
@@ -190,12 +196,18 @@ async def _arun_with_browser(url: str, run_config: Any, *, verbose: bool = False
         async with _create_browser_crawler(browser_config) as active_crawler:
             return await active_crawler.arun(url, config=run_config)
     except PlaywrightError as exc:
-        if "Executable doesn't exist" not in str(exc):
-            raise
-        raise BrowserNotInstalledError(
-            "The headless browser is not installed, or it does not match the installed Playwright version. "
-            "Run `web2md setup` (or call `web2md.install_browser()`) to download it."
-        ) from exc
+        msg = str(exc)
+        if "Executable doesn't exist" in msg:
+            raise BrowserNotInstalledError(
+                "The headless browser is not installed, or it does not match the installed Playwright version. "
+                "Run `web2md setup` (or call `web2md.install_browser()`) to download it."
+            ) from exc
+        if "Host system is missing dependencies" in msg or "error while loading shared libraries" in msg:
+            raise BrowserNotInstalledError(
+                "System libraries required by the headless browser are missing. "
+                "Run `web2md setup --with-deps` (or call `web2md.install_browser(with_deps=True)`) to install them."
+            ) from exc
+        raise
 
 
 async def _fetch_html_with_browser(url: str, *, crawler: Any | None = None) -> tuple[str, str]:
