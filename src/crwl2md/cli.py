@@ -9,6 +9,8 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from crwl2md import __version__
 from crwl2md.crawler import (
     CrawlConfig,
@@ -30,6 +32,14 @@ def _is_expected_cli_error(exc: BaseException) -> bool:
     mod = sys.modules.get("playwright.async_api")
     err_cls = getattr(mod, "Error", None)
     return isinstance(err_cls, type) and isinstance(exc, err_cls)
+
+
+def _format_cli_error(exc: BaseException) -> str:
+    if isinstance(exc, ValidationError):
+        errors = exc.errors()
+        if errors:
+            return str(errors[0].get("msg", exc)).removeprefix("Value error, ")
+    return str(exc)
 
 
 def _at_least[NumberT: (int, float)](minimum: NumberT) -> Callable[[str], NumberT]:
@@ -378,7 +388,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:
         if not _is_expected_cli_error(exc):
             raise
-        print(f"Error: {exc}", file=sys.stderr)
+        print(f"Error: {_format_cli_error(exc)}", file=sys.stderr)
         return 1
 
 

@@ -14,10 +14,10 @@ from functools import cache
 from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 from bs4.dammit import UnicodeDammit
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 if TYPE_CHECKING:
     from crawl4ai import BrowserConfig, CrawlResult, FilterChain
@@ -101,25 +101,75 @@ def parse_headers(raw: Mapping[str, str] | Sequence[str] | None) -> dict[str, st
     return parsed
 
 
-def _validate_proxy(proxy: str | None) -> str | None:
-    if proxy is None:
-        return None
+@dataclass(frozen=True)
+class _ParsedProxy:
+    server: str
+    username: str | None = None
+    password: str | None = None
+
+
+def _redact_proxy_for_error(proxy: str) -> str:
+    cleaned = proxy.strip()
+    if "://" in cleaned and "@" in cleaned:
+        scheme, rest = cleaned.split("://", 1)
+        _, host_part = rest.rsplit("@", 1)
+        return f"{scheme}://***@{host_part}"
+    parts = cleaned.split(":")
+    if "://" not in cleaned and len(parts) == 4:
+        return f"{parts[0]}:{parts[1]}:***"
+    return cleaned
+
+
+def _parse_proxy(proxy: str) -> _ParsedProxy:
     cleaned = proxy.strip()
     if not cleaned:
         raise ValueError("Proxy URL must not be empty.")
+    safe_repr = repr(_redact_proxy_for_error(cleaned))
     if "://" in cleaned:
         parsed = urlparse(cleaned)
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError(f"Invalid proxy port in {safe_repr}.") from exc
         if parsed.scheme not in ("http", "https", "socks5") or not parsed.hostname:
             raise ValueError(
-                f"Invalid proxy: {proxy!r}. Expected 'http://host:port', 'https://host:port', or 'socks5://host:port'."
+                f"Invalid proxy: {safe_repr}. Expected 'http://host:port', 'https://host:port', or 'socks5://host:port'."
             )
-        return cleaned
+        if port is not None and not (1 <= port <= 65535):
+            raise ValueError(f"Invalid proxy port in {safe_repr}: port must be between 1 and 65535.")
+        host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+        server = f"{parsed.scheme}://{host}:{port}" if port is not None else f"{parsed.scheme}://{host}"
+        username = unquote(parsed.username) if parsed.username is not None else None
+        password = unquote(parsed.password) if parsed.password is not None else None
+        return _ParsedProxy(server=server, username=username, password=password)
     parts = cleaned.split(":")
     if len(parts) in (2, 4) and all(parts) and parts[1].isdigit():
-        return cleaned
+        port_num = int(parts[1])
+        if not (1 <= port_num <= 65535):
+            raise ValueError(f"Invalid proxy port in {safe_repr}: port must be between 1 and 65535.")
+        server = f"http://{parts[0]}:{port_num}"
+        if len(parts) == 4:
+            return _ParsedProxy(server=server, username=parts[2], password=parts[3])
+        return _ParsedProxy(server=server)
     raise ValueError(
-        f"Invalid proxy: {proxy!r}. Expected 'http://host:port', 'socks5://host:port', 'host:port', or 'host:port:user:pass'."
+        f"Invalid proxy: {safe_repr}. Expected 'http://host:port', 'socks5://host:port', 'host:port', or 'host:port:user:pass'."
     )
+
+
+def _validate_proxy(proxy: str | None) -> str | None:
+    if proxy is None:
+        return None
+    _parse_proxy(proxy)
+    return proxy.strip()
+
+
+def _build_proxy_config(proxy: str | None) -> Any:
+    if not proxy:
+        return None
+    from crawl4ai import ProxyConfig
+
+    parsed = _parse_proxy(proxy)
+    return ProxyConfig(server=parsed.server, username=parsed.username, password=parsed.password)
 
 
 def _validate_storage_and_profile(
@@ -149,6 +199,9 @@ class _BrowserFetchOptions:
 
 class CrawlConfig(BaseModel):
     """Configuration for crawling a documentation website."""
+
+    # Avoid echoing sensitive fields (`headers`, `proxy`) in Pydantic validation tracebacks.
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     url: str
     output_dir: Path
@@ -290,16 +343,18 @@ async def _arun_with_browser(
     if crawler is not None:
         return await crawler.arun(url, config=run_config)
 
-    from crawl4ai import BrowserConfig, ProxyConfig
+    from crawl4ai import BrowserConfig
     from playwright.async_api import Error as PlaywrightError
 
     opts = options or _BrowserFetchOptions()
     # Crawl4AI prints a promotional banner unless told otherwise; an explicit user setting still wins.
     os.environ.setdefault("CRAWL4AI_NO_CLOUD_NOTICE", "1")
-    proxy_cfg = ProxyConfig.from_string(opts.proxy) if opts.proxy else None
+    proxy_cfg = _build_proxy_config(opts.proxy)
+    # text_mode skips image/font requests in normal crawls, but disables WebGL and blocks assets that anti-bot
+    # checks inspect, so keep full rendering enabled when stealth mode is active.
     browser_kwargs: dict[str, Any] = {
         "headless": True,
-        "text_mode": True,
+        "text_mode": not opts.stealth,
         "user_agent": await _get_desktop_chrome_user_agent(),
         "headers": dict(opts.headers),
         "storage_state": str(opts.storage_state) if opts.storage_state is not None else None,
@@ -310,7 +365,6 @@ async def _arun_with_browser(
     }
     if opts.user_data_dir is not None:
         browser_kwargs["user_data_dir"] = str(opts.user_data_dir)
-    # text_mode skips image requests since crwl2md only extracts HTML and keeps image URLs.
     browser_config = BrowserConfig(**browser_kwargs)
     try:
         async with _create_browser_crawler(browser_config) as active_crawler:
@@ -338,9 +392,9 @@ def _build_crawler_run_config(
     mean_delay: float = 0.1,
     semaphore_count: int = 5,
 ) -> Any:
-    from crawl4ai import CrawlerRunConfig, ProxyConfig
+    from crawl4ai import CrawlerRunConfig
 
-    proxy_cfg = ProxyConfig.from_string(options.proxy) if options.proxy else None
+    proxy_cfg = _build_proxy_config(options.proxy)
     wait_for = options.wait_for if options.wait_for is not None else _CONTENT_READY_JS
     # `prefetch=True` returns raw HTML and links without running Crawl4AI's own HTML cleaner or html2text converter.
     # Anti-bot sensors often run after `domcontentloaded`, so stealth mode waits for the `load` event.

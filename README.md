@@ -254,6 +254,7 @@ Pages that fail to fetch (including HTTP 4xx/5xx responses) are not saved; their
 - If the seed URL redirects to a different host or directory outside the initial scope, only the seed page is fetched. A warning displays the redirected URL so you can re-run using that URL as the seed.
 - Inline `<svg>` graphics are omitted from the Markdown output.
 - If the output directory already contains files, `crawl` exits to avoid accidental overwrites. Pass `--force` to write into a non-empty directory. Note that `--force` does not remove stale files left over from previous crawls.
+- `--header` attaches the given headers to every request made by the browser (including third-party scripts and assets). For site-scoped authentication, prefer `--storage-state` or `--user-data-dir`.
 
 ## License
 

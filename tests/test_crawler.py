@@ -1227,6 +1227,7 @@ async def test_crawl_site_forwards_auth_stealth_proxy_and_dynamic_page_options(
     assert b_cfg.headers["Accept-Language"] == "ja"
     assert b_cfg.storage_state == str(state_file)
     assert b_cfg.enable_stealth is True
+    assert b_cfg.text_mode is False
     assert b_cfg.proxy_config.server == "http://proxy.example.com:8080"
     assert b_cfg.proxy_config.username == "user"
     assert r_cfg.proxy_config.server == "http://proxy.example.com:8080"
@@ -1264,6 +1265,37 @@ async def test_convert_single_forwards_user_data_dir_to_persistent_browser_confi
     assert md.startswith("# Page\n")
     assert captured_browser_configs[0].use_persistent_context is True
     assert captured_browser_configs[0].user_data_dir == str(profile_dir)
+    assert captured_browser_configs[0].text_mode is True
+
+
+def test_build_proxy_config_parses_all_supported_formats():
+    from crwl2md.crawler import _build_proxy_config
+
+    with_user_only = _build_proxy_config("http://user@proxy.example.com:8080")
+    with_at_password = _build_proxy_config("http://user:p@ss@proxy.example.com:8080")
+    ipv6_proxy = _build_proxy_config("socks5://user:pass@[::1]:1080")
+    colon_proxy = _build_proxy_config("127.0.0.1:8080:alice:secret")
+
+    assert (with_user_only.server, with_user_only.username, with_user_only.password) == (
+        "http://proxy.example.com:8080",
+        "user",
+        None,
+    )
+    assert (with_at_password.server, with_at_password.username, with_at_password.password) == (
+        "http://proxy.example.com:8080",
+        "user",
+        "p@ss",
+    )
+    assert (ipv6_proxy.server, ipv6_proxy.username, ipv6_proxy.password) == (
+        "socks5://[::1]:1080",
+        "user",
+        "pass",
+    )
+    assert (colon_proxy.server, colon_proxy.username, colon_proxy.password) == (
+        "http://127.0.0.1:8080",
+        "alice",
+        "secret",
+    )
 
 
 def test_crawl_config_validates_headers_proxy_and_storage_options(tmp_path: Path):
@@ -1278,6 +1310,15 @@ def test_crawl_config_validates_headers_proxy_and_storage_options(tmp_path: Path
         CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", headers={" ": "val"})
     with pytest.raises(ValueError, match="Invalid proxy"):
         CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", proxy="bad-proxy")
+    with pytest.raises(ValueError, match="Invalid proxy port"):
+        CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", proxy="http://host:abc")
+    with pytest.raises(ValueError, match="Invalid proxy port"):
+        CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", proxy="http://host:99999")
+    with pytest.raises(ValueError, match="Invalid proxy port"):
+        CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", proxy="127.0.0.1:99999")
+    with pytest.raises(ValueError) as exc_info:
+        CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", proxy="http://user:s3cr3t@:8080")
+    assert "s3cr3t" not in str(exc_info.value)
     with pytest.raises(ValueError, match="Cannot specify both"):
         CrawlConfig(
             url="https://example.com/docs/",
@@ -1291,3 +1332,11 @@ def test_crawl_config_validates_headers_proxy_and_storage_options(tmp_path: Path
         )
     with pytest.raises(ValueError, match="not a directory"):
         CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", user_data_dir=not_a_dir)
+
+
+async def test_convert_single_rejects_blank_wait_for(tmp_path: Path):
+    html_file = tmp_path / "sample.html"
+    html_file.write_text("<html><body><main><h1>Hi</h1></main></body></html>", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="wait_for must not be empty"):
+        await convert_single(str(html_file), wait_for="   ")

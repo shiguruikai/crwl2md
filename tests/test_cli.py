@@ -74,6 +74,56 @@ def test_cli_convert_reports_unwritable_output_path(tmp_path: Path, capsys: pyte
     assert capsys.readouterr().err.startswith("Error: ")
 
 
+def test_cli_convert_forwards_browser_options(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    captured: list[dict[str, object]] = []
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{}", encoding="utf-8")
+
+    async def fake_convert_single(source: object, **kwargs: object) -> str:
+        captured.append({"source": source, **kwargs})
+        return "# Title\n"
+
+    monkeypatch.setattr("crwl2md.cli.convert_single", fake_convert_single)
+    out_file = tmp_path / "out.md"
+
+    exit_code = main(
+        [
+            "convert",
+            "https://example.com/docs/intro",
+            *("-o", str(out_file)),
+            *("--header", "X-Token: abc"),
+            *("--storage-state", str(state_file)),
+            *("--proxy", "127.0.0.1:8080"),
+            "--stealth",
+            *("--wait-for", ".content"),
+            "--scan-full-page",
+            "--flatten-shadow-dom",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured[0]["source"] == "https://example.com/docs/intro"
+    assert captured[0]["headers"] == ["X-Token: abc"]
+    assert captured[0]["storage_state"] == state_file
+    assert captured[0]["proxy"] == "127.0.0.1:8080"
+    assert captured[0]["stealth"] is True
+    assert captured[0]["wait_for"] == ".content"
+    assert captured[0]["scan_full_page"] is True
+    assert captured[0]["flatten_shadow_dom"] is True
+
+
+def test_cli_crawl_formats_validation_error_cleanly_and_redacts_proxy_password(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    exit_code = main(["crawl", "https://example.com/docs/", "-o", str(tmp_path), "--proxy", "http://user:s3cr3t@:8080"])
+
+    stderr = capsys.readouterr().err
+    assert exit_code == 1
+    assert stderr.startswith("Error: Invalid proxy:")
+    assert "s3cr3t" not in stderr
+    assert "errors.pydantic.dev" not in stderr
+
+
 def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
