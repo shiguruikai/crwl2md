@@ -26,6 +26,6 @@ tasks:
       - uv run ruff format .
 
   test:
-    desc: Run tests
+    desc: Run tests with coverage
     cmds:
-      - uv run pytest {{.CLI_ARGS}}
+      - uv run pytest --cov=web2md --cov-report=term-missing {{.CLI_ARGS}}
