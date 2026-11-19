@@ -429,7 +429,8 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     else:
         # Crawl4AI prints a promotional banner unless told otherwise; an explicit user setting still wins.
         os.environ.setdefault("CRAWL4AI_NO_CLOUD_NOTICE", "1")
-        browser_config = BrowserConfig(headless=True, verbose=config.verbose)
+        # text_mode skips image requests since web2md only extracts HTML and keeps image URLs.
+        browser_config = BrowserConfig(headless=True, text_mode=True, verbose=config.verbose)
         try:
             async with AsyncWebCrawler(config=browser_config) as active_crawler:
                 raw_results = await active_crawler.arun(config.url, config=run_config)

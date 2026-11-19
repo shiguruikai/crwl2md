@@ -440,6 +440,33 @@ async def test_crawl_site_checks_robots_txt_only_on_request(tmp_path: Path, resp
     assert fake_crawler.run_config.check_robots_txt is respect_robots
 
 
+async def test_crawl_site_disables_image_loading_in_browser_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    captured: list[Any] = []
+
+    class FakeBrowserCrawler(_FakeCrawler):
+        async def __aenter__(self) -> FakeBrowserCrawler:
+            return self
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            return None
+
+    results = [CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)]
+
+    def fake_crawler_factory(config: Any) -> FakeBrowserCrawler:
+        captured.append(config)
+        return FakeBrowserCrawler(results)
+
+    monkeypatch.setattr("web2md.crawler.AsyncWebCrawler", fake_crawler_factory)
+    monkeypatch.setenv("CRAWL4AI_NO_CLOUD_NOTICE", "1")
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
+
+    await crawl_site(config)
+
+    assert len(captured) == 1
+    assert captured[0].headless is True
+    assert captured[0].text_mode is True
+
+
 @pytest.mark.parametrize(("preset", "expected"), [(None, "1"), ("0", "0")])
 async def test_crawl_site_hides_crawl4ai_banner_unless_user_set_the_variable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preset: str | None, expected: str
