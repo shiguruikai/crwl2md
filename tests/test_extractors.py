@@ -511,6 +511,36 @@ def test_extract_markdown_keeps_standard_link_syntax_when_text_matches_href():
     assert "[https://example.org/x](https://example.org/x)" in md
 
 
+def test_extract_markdown_and_sidebar_honor_base_href():
+    html = """
+    <html>
+      <head>
+        <base target="_blank">
+        <base href="https://cdn.example.com/v2/">
+        <base href="https://ignored.example.com/">
+      </head>
+      <body>
+        <aside><nav><a href="guide">Guide</a></nav></aside>
+        <main><p><img src="img/a.png" alt="A"></p></main>
+      </body>
+    </html>
+    """
+
+    md = extract_markdown(html, url="https://example.com/docs/intro")
+    sidebar = extract_sidebar_links(html, "https://cdn.example.com/docs/intro")
+
+    assert '<img src="https://cdn.example.com/v2/img/a.png" alt="A">' in md
+    assert sidebar == ["https://cdn.example.com/v2/guide"]
+
+
+def test_extract_markdown_honors_relative_base_href():
+    html = '<html><head><base href="/v2/"></head><body><main><p><img src="img/a.png" alt="A"></p></main></body></html>'
+
+    md = extract_markdown(html, url="https://example.com/docs/intro")
+
+    assert '<img src="https://example.com/v2/img/a.png" alt="A">' in md
+
+
 def test_extract_page_metadata_ignores_site_name_heading_outside_main_content():
     html = """
     <html><head><title>Real Page Title | Site</title></head><body>

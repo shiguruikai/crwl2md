@@ -31,6 +31,7 @@ from playwright.async_api import Error as PlaywrightError
 from pydantic import BaseModel, Field
 
 from web2md.extractors import (
+    extract_base_url,
     extract_markdown,
     extract_page_metadata,
     extract_sidebar_links,
@@ -174,9 +175,10 @@ def convert_single(
         final_url = ""
 
     md = extract_markdown(html, url=final_url)
-    if final_url:
+    link_base_url = extract_base_url(html, final_url)
+    if link_base_url:
         # A standalone file has no sibling pages, so every relative link must become an absolute URL.
-        md = rewrite_markdown_links(md, final_url, "", {})
+        md = rewrite_markdown_links(md, link_base_url, "", {})
     if resolved_fields is not None:
         meta = extract_page_metadata(html, md)
         fm = format_frontmatter(meta.title, meta.description, final_url, fields=resolved_fields)
@@ -460,7 +462,8 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
         raw_md = extract_markdown(res.html or "", url=final_url)
         fallback_title = str((res.metadata or {}).get("title") or "")
         meta = extract_page_metadata(res.html or "", raw_md, fallback_title=fallback_title)
-        rewritten = rewrite_markdown_links(raw_md, final_url, relpath, link_lookup)
+        link_base_url = extract_base_url(res.html or "", final_url)
+        rewritten = rewrite_markdown_links(raw_md, link_base_url, relpath, link_lookup)
 
         if resolved_fields is not None:
             fm = format_frontmatter(

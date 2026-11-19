@@ -178,6 +178,23 @@ async def test_crawl_site_does_not_flag_seed_redirected_within_scope(tmp_path: P
     assert summary.seed_redirected_to is None
 
 
+async def test_crawl_site_honors_base_href_when_rewriting_links(tmp_path: Path):
+    seed_html = (
+        '<html><head><base href="https://example.com/docs/v2/"></head>'
+        '<body><main><h1>Docs</h1><p><a href="guide">Guide</a></p></main></body></html>'
+    )
+    fake_results = [
+        CrawlResult(url="https://example.com/docs/intro", html=seed_html, success=True),
+        CrawlResult(url="https://example.com/docs/v2/guide", html=_page("Guide"), success=True),
+    ]
+    out_dir = tmp_path / "out"
+    config = CrawlConfig(url="https://example.com/docs/intro", output_dir=out_dir)
+
+    await crawl_site(config, crawler=_FakeCrawler(fake_results))
+
+    assert "[Guide](v2/guide.md)" in (out_dir / "intro.md").read_text(encoding="utf-8")
+
+
 async def test_crawl_site_localizes_links_to_pre_redirect_urls(tmp_path: Path):
     fake_results = [
         CrawlResult(
@@ -492,6 +509,20 @@ def test_convert_single_url_resolves_relative_links_to_absolute_urls(monkeypatch
 
     assert "[next](https://example.com/docs/next)" in md
     assert "[other](https://example.com/docs/other.html#x)" in md
+    assert 'source: "https://example.com/docs/page"' in md
+
+
+def test_convert_single_url_honors_base_href_for_links_and_images(monkeypatch: pytest.MonkeyPatch):
+    html = (
+        '<html><head><base href="https://cdn.example.com/v2/"></head>'
+        '<body><main><h1>Page</h1><p><a href="guide.html">Guide</a> <img src="img/a.png" alt="A"></p></main></body></html>'
+    )
+    _fake_http_get(monkeypatch, html.encode("utf-8"), "text/html; charset=utf-8")
+
+    md = convert_single("https://example.com/docs/page", frontmatter_fields=["source"])
+
+    assert "[Guide](https://cdn.example.com/v2/guide.html)" in md
+    assert '<img src="https://cdn.example.com/v2/img/a.png" alt="A">' in md
     assert 'source: "https://example.com/docs/page"' in md
 
 

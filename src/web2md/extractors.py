@@ -339,6 +339,25 @@ def _postprocess_markdown(markdown: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _resolve_base_url(soup: BeautifulSoup, page_url: str) -> str:
+    # HTML honors the first <base> element that carries an href attribute.
+    base_tag = soup.find("base", href=True)
+    if isinstance(base_tag, Tag):
+        raw_href = base_tag.get("href")
+        if isinstance(raw_href, str) and (href := raw_href.strip()):
+            resolved = urljoin(page_url, href) if page_url else href
+            if resolved.startswith(("http://", "https://")):
+                return resolved
+    return page_url
+
+
+def extract_base_url(html: str, page_url: str = "") -> str:
+    """Return the effective base URL for resolving relative links, honoring HTML `<base href>`."""
+    if not html.strip():
+        return page_url
+    return _resolve_base_url(BeautifulSoup(html, "lxml"), page_url)
+
+
 def _select_main_container(soup: BeautifulSoup) -> Tag:
     return next((el for selector in _MAIN_SELECTORS if (el := soup.select_one(selector)) is not None), soup)
 
@@ -349,6 +368,7 @@ def extract_markdown(html: str, url: str = "") -> str:
         return ""
 
     soup = BeautifulSoup(html, "lxml")
+    effective_url = _resolve_base_url(soup, url)
     target = _select_main_container(soup)
     # Tab labels and <aside> callouts must be rewritten before the generic <button>/<aside> removal.
     _label_tab_panels(target, soup)
@@ -356,7 +376,7 @@ def extract_markdown(html: str, url: str = "") -> str:
     _strip_unwanted_dom_elements(target)
     _normalize_anchor_newlines(target)
     converter = _DomMarkdownConverter(
-        base_url=url,
+        base_url=effective_url,
         heading_style="ATX",
         bullets="-",
         # Trailing-space line breaks would be lost to whitespace cleanup, so <br> becomes a backslash break.
@@ -458,6 +478,7 @@ def extract_sidebar_links(html: str, base_url: str) -> list[str]:
         return []
 
     soup = BeautifulSoup(html, "lxml")
+    effective_base = _resolve_base_url(soup, base_url)
     base_host = urlparse(base_url).netloc.lower() if base_url else ""
 
     candidate_links: list[str] = []
@@ -479,7 +500,7 @@ def extract_sidebar_links(html: str, base_url: str) -> list[str]:
                 href = str(anchor["href"]).strip()
                 if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
                     continue
-                abs_url = urljoin(base_url, href) if base_url else href
+                abs_url = urljoin(effective_base, href) if effective_base else href
                 parsed = urlparse(abs_url)
                 if parsed.scheme and parsed.scheme not in ("http", "https"):
                     continue
