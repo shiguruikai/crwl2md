@@ -5,7 +5,7 @@ import asyncio
 import re
 import sys
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -221,14 +221,28 @@ def _summarize_top_level_dirs(files: Sequence[str]) -> list[tuple[str, int]]:
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
 
 
+def _summarize_error_reason(reason: str, max_length: int = 160) -> str:
+    head = reason.split("Call log:", 1)[0]
+    collapsed = re.sub(r"\s+", " ", head).strip()
+    if len(collapsed) <= max_length:
+        return collapsed
+    return collapsed[: max_length - 3].rstrip() + "..."
+
+
 def _format_progress_line(result: Any, pages_crawled: int, max_pages: int) -> str:
     final_url = getattr(result, "redirected_url", None) or getattr(result, "url", "")
     redirected_status = getattr(result, "redirected_status_code", None)
     status_code = redirected_status if redirected_status is not None else getattr(result, "status_code", None)
     http_error = status_code is not None and status_code >= 400
     if not getattr(result, "success", False) or http_error:
-        reason = getattr(result, "error_message", None) or (f"HTTP {status_code}" if http_error else "Unknown error")
+        raw_reason = getattr(result, "error_message", None) or (
+            f"HTTP {status_code}" if http_error else "Unknown error"
+        )
+        reason = _summarize_error_reason(str(raw_reason)) or "Unknown error"
         return f"[failed] {final_url} ({reason})"
+    metadata = getattr(result, "metadata", None)
+    if isinstance(metadata, Mapping) and metadata.get("out_of_scope"):
+        return f"[skipped] {final_url} (outside crawl scope)"
     return f"[{pages_crawled}/{max_pages}] {final_url}"
 
 

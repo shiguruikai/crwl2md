@@ -655,6 +655,54 @@ def _link_following_bfs_strategy_cls() -> Any:
                 return False
             return depth == 0 or await self.filter_chain.apply(url)
 
+        async def link_discovery(
+            self,
+            result: CrawlResult,
+            source_url: str,
+            current_depth: int,
+            visited: set[str],
+            next_level: list[tuple[str, str | None]],
+            depths: dict[str, int],
+        ) -> None:
+            next_depth = current_depth + 1
+            if next_depth > self.max_depth:
+                return
+
+            remaining_capacity = self.max_pages - self._pages_crawled - len(next_level)
+            if remaining_capacity <= 0:
+                return
+
+            links_map = result.links if isinstance(result.links, Mapping) else {}
+            links: list[Any] = list(links_map.get("internal", []) or [])
+            if self.include_external:
+                links.extend(links_map.get("external", []) or [])
+
+            queued_urls = {u for u, _ in next_level}
+            valid_links: list[str] = []
+            seen_in_page: set[str] = set()
+            for link in links:
+                href = link.get("href") if isinstance(link, Mapping) else None
+                if not isinstance(href, str):
+                    continue
+                base_url = normalize_url_for_deep_crawl(href, source_url)
+                if not base_url or base_url in visited or base_url in queued_urls or base_url in seen_in_page:
+                    continue
+                if not await self.can_process_url(base_url, next_depth):
+                    self.stats.urls_skipped += 1
+                    continue
+                seen_in_page.add(base_url)
+                valid_links.append(base_url)
+
+            # Register only URLs that actually enter `next_level` so links truncated by `remaining_capacity`
+            # remain discoverable if earlier URLs in the level return HTTP 4xx/5xx or redirect out of scope.
+            if len(valid_links) > remaining_capacity:
+                valid_links = valid_links[: int(remaining_capacity)]
+
+            for url in valid_links:
+                visited.add(url)
+                next_level.append((url, source_url))
+                depths[url] = next_depth
+
         async def _arun_batch(
             self,
             start_url: str,
@@ -677,6 +725,7 @@ def _link_following_bfs_strategy_cls() -> Any:
                 if remaining < len(current_level):
                     current_level = current_level[: max(int(remaining), 0)]
                 urls = [url for url, _ in current_level]
+                url_order = {u: idx for idx, u in enumerate(urls)}
                 parents = dict(reversed(current_level))
                 for u in urls:
                     visited.add(u)
@@ -691,38 +740,41 @@ def _link_following_bfs_strategy_cls() -> Any:
                     async for item in raw_level:
                         for result in _flatten_crawl_results(item):
                             level_results.append(result)
-                            self._record_fetched_page(result, depths, parents, visited, results)
+                            await self._record_fetched_page(result, depths, parents, visited)
                 else:
                     for result in _flatten_crawl_results(raw_level):
                         level_results.append(result)
-                        self._record_fetched_page(result, depths, parents, visited, results)
+                        await self._record_fetched_page(result, depths, parents, visited)
+
+                # Restore BFS URL order before appending results and discovering links so crawl results are deterministic.
+                level_results.sort(key=lambda res: url_order.get(res.url, len(urls)))
+                results.extend(level_results)
 
                 for result in level_results:
                     depth = depths.get(result.url, 0)
                     status_code = _effective_status_code(result)
+                    out_of_scope = bool((result.metadata or {}).get("out_of_scope"))
                     # Follow links from the seed URL even if it returns HTTP 404: a section directory URL such as
                     # `/advanced/` often has no index page of its own while still rendering the site's sidebar links.
-                    if result.success and (depth == 0 or status_code is None or status_code < 400):
+                    if result.success and not out_of_scope and (depth == 0 or status_code is None or status_code < 400):
                         await self.link_discovery(result, _final_url(result), depth, visited, next_level, depths)
 
                 current_level = next_level
 
             return results
 
-        def _record_fetched_page(
+        async def _record_fetched_page(
             self,
             result: CrawlResult,
             depths: Mapping[str, int],
             parents: Mapping[str, str | None],
             visited: set[str],
-            results: list[CrawlResult],
         ) -> None:
             url = result.url
             depth = depths.get(url, 0)
             result.metadata = result.metadata or {}
             result.metadata["depth"] = depth
             result.metadata["parent_url"] = parents.get(url)
-            results.append(result)
 
             final_url = _final_url(result)
             visited.add(final_url)
@@ -730,7 +782,11 @@ def _link_following_bfs_strategy_cls() -> Any:
                 visited.add(normalized)
 
             status_code = _effective_status_code(result)
-            if result.success and (status_code is None or status_code < 400):
+            is_ok = result.success and (status_code is None or status_code < 400)
+            out_of_scope = is_ok and depth > 0 and not await self.filter_chain.apply(final_url)
+            if out_of_scope:
+                result.metadata["out_of_scope"] = True
+            elif is_ok:
                 self._pages_crawled += 1
             if self._on_page_fetched is not None:
                 self._on_page_fetched(result, self._pages_crawled)
@@ -880,7 +936,11 @@ async def _analyze_unfetched_links(
         return 0, False, False
 
     successful_fetches = sum(
-        1 for res in all_results if res.success and ((sc := _effective_status_code(res)) is None or sc < 400)
+        1
+        for res in all_results
+        if res.success
+        and ((sc := _effective_status_code(res)) is None or sc < 400)
+        and not (res.metadata or {}).get("out_of_scope")
     )
     hit_max_pages = successful_fetches >= config.max_pages
     hit_max_depth = config.max_depth is not None and has_unfetched_at_max_depth
@@ -963,7 +1023,11 @@ async def crawl_site(
         crawled_so_far = 0
         for res in all_results:
             status_code = _effective_status_code(res)
-            if res.success and (status_code is None or status_code < 400):
+            if (
+                res.success
+                and (status_code is None or status_code < 400)
+                and not (res.metadata or {}).get("out_of_scope")
+            ):
                 crawled_so_far += 1
             on_progress(res, crawled_so_far)
     triaged = await _triage_results(all_results, config.url, filter_chain)

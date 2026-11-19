@@ -85,7 +85,28 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
         received.append(config)
         if callable(on_progress):
             on_progress(CrawlResult(url="https://example.com/docs/", html="ok", success=True, status_code=200), 1)
-            on_progress(CrawlResult(url="https://example.com/docs/gone", html="", success=True, status_code=404), 1)
+            on_progress(
+                CrawlResult(
+                    url="https://example.com/docs/gone",
+                    html="",
+                    success=False,
+                    status_code=500,
+                    error_message="Failed on navigating ACS-GOTO:\nPage.goto: net::ERR_FAILED\nCall log:\n  - navigating",
+                ),
+                1,
+            )
+            on_progress(
+                CrawlResult(
+                    url="https://example.com/docs/sso",
+                    redirected_url="https://example.com/login",
+                    html="ok",
+                    success=True,
+                    status_code=302,
+                    redirected_status_code=200,
+                    metadata={"out_of_scope": True},
+                ),
+                1,
+            )
         return CrawlSummary(
             seed_url=config.url,
             output_dir=config.output_dir,
@@ -139,7 +160,12 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
     assert "Crawled 2 pages and generated 1 index files" in captured.out
     assert "Crawl scope: /docs/**" in captured.err
     assert "[1/100] https://example.com/docs/" in captured.err
-    assert "[failed] https://example.com/docs/gone (HTTP 404)" in captured.err
+    assert (
+        "[failed] https://example.com/docs/gone (Failed on navigating ACS-GOTO: Page.goto: net::ERR_FAILED)\n"
+        in captured.err
+    )
+    assert "Call log:" not in captured.err
+    assert "[skipped] https://example.com/login (outside crawl scope)\n" in captured.err
     assert "  - https://example.com/docs/gone: HTTP 404" in captured.err
     assert "  - https://example.com/login" in captured.err
     assert "Warning: the seed URL was redirected to https://www.example.com/docs/" in captured.err

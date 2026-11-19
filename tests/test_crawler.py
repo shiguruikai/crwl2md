@@ -692,6 +692,112 @@ async def test_bfs_strategy_discovers_links_from_404_seed_directory_page(tmp_pat
     ]
 
 
+async def test_bfs_strategy_restores_url_order_keeps_truncated_links_and_excludes_out_of_scope_redirects(
+    tmp_path: Path,
+):
+    from crawl4ai import CrawlerRunConfig
+
+    pages_by_url = {
+        "https://example.com/docs/": CrawlResult(
+            url="https://example.com/docs/",
+            html=_page("Docs"),
+            success=True,
+            status_code=200,
+            links={
+                "internal": [
+                    {"href": "https://example.com/docs/first"},
+                    {"href": "https://example.com/docs/out-redirect"},
+                    {"href": "https://example.com/docs/deferred"},
+                ],
+                "external": [],
+            },
+        ),
+        "https://example.com/docs/first": CrawlResult(
+            url="https://example.com/docs/first",
+            html=_page("First"),
+            success=True,
+            status_code=200,
+            links={"internal": [{"href": "https://example.com/docs/deferred"}], "external": []},
+        ),
+        "https://example.com/docs/out-redirect": CrawlResult(
+            url="https://example.com/docs/out-redirect",
+            redirected_url="https://example.com/login",
+            html=_page("Login"),
+            success=True,
+            status_code=302,
+            redirected_status_code=200,
+            links={"internal": [{"href": "https://example.com/docs/from-login"}], "external": []},
+        ),
+        "https://example.com/docs/deferred": CrawlResult(
+            url="https://example.com/docs/deferred",
+            html=_page("Deferred"),
+            success=True,
+            status_code=200,
+            links={"internal": [], "external": []},
+        ),
+    }
+
+    class OutOfOrderStreamingCrawler:
+        async def arun_many(self, urls: list[str], config: Any = None):
+            async def gen():
+                # Emit in reverse order to simulate concurrent completions finishing out of order.
+                for u in reversed(urls):
+                    yield pages_by_url[u]
+
+            return gen()
+
+    progress_events: list[tuple[str, int, bool]] = []
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", max_pages=3)
+    strategy = _link_following_bfs_strategy_cls()(
+        max_depth=3,
+        max_pages=3,
+        filter_chain=build_filter_chain(config),
+        on_page_fetched=lambda res, count: progress_events.append(
+            (res.redirected_url or res.url, count, bool((res.metadata or {}).get("out_of_scope")))
+        ),
+    )
+
+    results = await strategy._arun_batch("https://example.com/docs/", OutOfOrderStreamingCrawler(), CrawlerRunConfig())
+
+    # Results are restored to BFS URL order despite reverse streaming completion,
+    # the out-of-scope redirect does not consume a max_pages slot or spawn links,
+    # and `/docs/deferred` (truncated at depth 0) remains discoverable at depth 1.
+    assert [r.url for r in results] == [
+        "https://example.com/docs/",
+        "https://example.com/docs/first",
+        "https://example.com/docs/out-redirect",
+        "https://example.com/docs/deferred",
+    ]
+    assert progress_events == [
+        ("https://example.com/docs/", 1, False),
+        ("https://example.com/login", 1, True),
+        ("https://example.com/docs/first", 2, False),
+        ("https://example.com/docs/deferred", 3, False),
+    ]
+
+
+async def test_crawl_site_invokes_on_progress_fallback_when_crawler_bypasses_strategy(tmp_path: Path):
+    fake_results = [
+        CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True, status_code=200),
+        CrawlResult(url="https://example.com/docs/missing", html=_page("404"), success=True, status_code=404),
+        CrawlResult(url="https://example.com/docs/guide", html=_page("Guide"), success=True, status_code=200),
+    ]
+    progress_events: list[tuple[str, int]] = []
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
+
+    await crawl_site(
+        config,
+        crawler=_FakeCrawler(fake_results),
+        on_progress=lambda res, count: progress_events.append((res.url, count)),
+    )
+
+    assert progress_events == [
+        ("https://example.com/docs/", 1),
+        ("https://example.com/docs/missing", 1),
+        ("https://example.com/docs/guide", 2),
+    ]
+
+
 @pytest.mark.parametrize(
     ("include_patterns", "expected"),
     [
