@@ -218,6 +218,39 @@ async def test_crawl_site_localizes_links_to_pre_redirect_urls(tmp_path: Path):
     assert "[Renamed page](new-name.md)" in (out_dir / "overview.md").read_text(encoding="utf-8")
 
 
+async def test_crawl_site_reports_empty_extracted_pages_as_failed(tmp_path: Path):
+    fake_results = [
+        CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True, status_code=200),
+        CrawlResult(
+            url="https://example.com/docs/empty",
+            html="<html><body><main></main></body></html>",
+            success=True,
+            status_code=200,
+        ),
+    ]
+    out_dir = tmp_path / "out"
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=out_dir)
+
+    summary = await crawl_site(config, crawler=_FakeCrawler(fake_results))
+
+    assert summary.page_count == 1
+    assert summary.files == ["docs.md", "index.md"]
+    assert [(page.url, page.status_code, page.reason) for page in summary.failed_pages] == [
+        ("https://example.com/docs/empty", 200, "Empty page content")
+    ]
+    assert not (out_dir / "empty.md").exists()
+
+
+async def test_crawl_site_configures_content_ready_wait(tmp_path: Path):
+    fake_crawler = _FakeCrawler([CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)])
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
+
+    await crawl_site(config, crawler=fake_crawler)
+
+    assert fake_crawler.run_config.wait_for.startswith("js:")
+    assert fake_crawler.run_config.wait_for_timeout == 5000
+
+
 async def test_crawl_site_saves_other_pages_when_one_page_fails_conversion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

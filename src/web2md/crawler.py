@@ -47,6 +47,22 @@ _NON_HTML_ASSET_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Wait until the main content container has meaningful text so client-rendered pages finish hydrating.
+# Crawl4AI's `csp_compliant_wait` returns False on timeout without failing the page, so short pages still succeed.
+_CONTENT_READY_JS = (
+    "js:() => {"
+    " const selectors = ['.theme-doc-markdown', '.md-content', '.vp-doc', 'main', '[role=\"main\"]'];"
+    " for (const sel of selectors) {"
+    "  const el = document.querySelector(sel);"
+    "  if (el) return (el.innerText || '').trim().length >= 200;"
+    " }"
+    " const articles = document.querySelectorAll('article');"
+    " const target = articles.length === 1 ? articles[0] : document.body;"
+    " return Boolean(target && (target.innerText || '').trim().length >= 200);"
+    "}"
+)
+_CONTENT_WAIT_TIMEOUT_MS = 5000
+
 
 def validate_http_url(url: str) -> str:
     """Validate that `url` is an absolute `http://` or `https://` URL with a host."""
@@ -534,6 +550,8 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
             include_external=include_external,
         ),
         scraping_strategy=LXMLWebScrapingStrategy(),
+        wait_for=_CONTENT_READY_JS,
+        wait_for_timeout=_CONTENT_WAIT_TIMEOUT_MS,
         max_retries=1,
         check_robots_txt=config.respect_robots,
         mean_delay=config.delay,
@@ -573,6 +591,11 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
         html = res.html or ""
         try:
             raw_md = extract_markdown(html, url=final_url)
+            if not raw_md.strip():
+                triaged.failed.append(
+                    FailedPage(url=final_url, status_code=res.status_code, reason="Empty page content")
+                )
+                continue
             fallback_title = str((res.metadata or {}).get("title") or "")
             meta = extract_page_metadata(html, raw_md, fallback_title=fallback_title)
             link_base_url = extract_base_url(html, final_url)
