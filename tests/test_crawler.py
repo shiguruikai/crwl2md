@@ -272,6 +272,46 @@ async def test_crawl_site_raises_with_reason_when_no_page_succeeds(tmp_path: Pat
         await crawl_site(config, crawler=_FakeCrawler(fake_results))
 
 
+async def test_crawl_site_refuses_non_empty_output_dir_without_force(tmp_path: Path):
+    out_dir = tmp_path / "existing"
+    out_dir.mkdir()
+    existing = out_dir / "notes.md"
+    existing.write_text("keep me", encoding="utf-8")
+
+    class NeverCalledCrawler:
+        async def arun(self, url: str, config: Any = None) -> list[CrawlResult]:
+            raise AssertionError("crawler should not be invoked when output_dir is non-empty")
+
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=out_dir)
+
+    with pytest.raises(FileExistsError, match="--force"):
+        await crawl_site(config, crawler=NeverCalledCrawler())
+
+    assert existing.read_text(encoding="utf-8") == "keep me"
+
+
+async def test_crawl_site_overwrites_non_empty_output_dir_with_force(tmp_path: Path):
+    out_dir = tmp_path / "existing"
+    out_dir.mkdir()
+    (out_dir / "index.md").write_text("old", encoding="utf-8")
+    fake_results = [CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)]
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=out_dir, force=True)
+
+    summary = await crawl_site(config, crawler=_FakeCrawler(fake_results))
+
+    assert summary.page_count == 1
+    assert "Docs" in (out_dir / "index.md").read_text(encoding="utf-8")
+
+
+async def test_crawl_site_rejects_file_as_output_dir(tmp_path: Path):
+    out_file = tmp_path / "not_a_dir"
+    out_file.write_text("x", encoding="utf-8")
+    config = CrawlConfig(url="https://example.com/docs/", output_dir=out_file, force=True)
+
+    with pytest.raises(ValueError, match="not a directory"):
+        await crawl_site(config, crawler=_FakeCrawler([]))
+
+
 def test_crawl_config_rejects_url_without_http_scheme(tmp_path: Path):
     with pytest.raises(ValueError, match="http://"):
         CrawlConfig(url="docs.example.com/intro", output_dir=tmp_path / "out")

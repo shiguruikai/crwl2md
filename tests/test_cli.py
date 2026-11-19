@@ -102,6 +102,7 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
             *("--max-depth", "3"),
             *("--include", "/docs/**"),
             "--respect-robots",
+            "--force",
             *("--delay", "1.5"),
             *("--concurrency", "2"),
         ]
@@ -109,7 +110,12 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert (received[0].max_depth, received[0].include_patterns, received[0].respect_robots) == (3, ["/docs/**"], True)
+    assert (received[0].max_depth, received[0].include_patterns, received[0].respect_robots, received[0].force) == (
+        3,
+        ["/docs/**"],
+        True,
+        True,
+    )
     assert (received[0].delay, received[0].concurrency) == (1.5, 2)
     assert "Crawled 2 pages and generated 1 index files" in captured.out
     assert "Crawl scope: /docs/**" in captured.err

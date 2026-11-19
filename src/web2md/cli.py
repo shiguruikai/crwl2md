@@ -125,6 +125,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip pages that the site's robots.txt disallows.",
     )
+    crawl_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow writing into a non-empty output directory and overwriting existing files.",
+    )
     _add_frontmatter_options(crawl_parser)
     crawl_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose crawler logging.")
 
@@ -183,6 +188,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 concurrency=args.concurrency,
                 frontmatter=args.frontmatter or frontmatter_fields is not None,
                 frontmatter_fields=frontmatter_fields,
+                force=args.force,
                 verbose=args.verbose,
             )
             print(f"Crawl scope: {describe_crawl_scope(config)}", file=sys.stderr)

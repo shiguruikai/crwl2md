@@ -77,6 +77,7 @@ class CrawlConfig(BaseModel):
     concurrency: int = Field(default=5, ge=1)
     frontmatter: bool = False
     frontmatter_fields: list[FrontmatterField] | None = None
+    force: bool = False
     verbose: bool = False
 
     @field_validator("url")
@@ -421,6 +422,18 @@ def _resolve_output_path(output_dir: Path, relpath: str) -> Path:
     return dest
 
 
+def _ensure_output_dir_writable(output_dir: Path, *, force: bool) -> None:
+    if not output_dir.exists():
+        return
+    if not output_dir.is_dir():
+        raise ValueError(f"Output path exists and is not a directory: {output_dir}")
+    if not force and any(output_dir.iterdir()):
+        raise FileExistsError(
+            f"Output directory is not empty: {output_dir}. "
+            "Pass --force (or set force=True) to overwrite existing files."
+        )
+
+
 def _write_files(output_dir: Path, files: Mapping[str, str]) -> None:
     for relpath, content in files.items():
         dest = _resolve_output_path(output_dir, relpath)
@@ -433,6 +446,7 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
 
     `crawler` replaces the Crawl4AI browser crawler and exists for tests.
     """
+    _ensure_output_dir_writable(config.output_dir, force=config.force)
     from crawl4ai import BrowserConfig, CrawlerRunConfig
     from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
     from playwright.async_api import Error as PlaywrightError
