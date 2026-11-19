@@ -7,6 +7,7 @@ import sys
 from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from crwl2md import __version__
 from crwl2md.crawler import (
@@ -161,6 +162,17 @@ def _summarize_top_level_dirs(files: Sequence[str]) -> list[tuple[str, int]]:
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
 
 
+def _format_progress_line(result: Any, pages_crawled: int, max_pages: int) -> str:
+    final_url = getattr(result, "redirected_url", None) or getattr(result, "url", "")
+    redirected_status = getattr(result, "redirected_status_code", None)
+    status_code = redirected_status if redirected_status is not None else getattr(result, "status_code", None)
+    http_error = status_code is not None and status_code >= 400
+    if not getattr(result, "success", False) or http_error:
+        reason = getattr(result, "error_message", None) or (f"HTTP {status_code}" if http_error else "Unknown error")
+        return f"[failed] {final_url} ({reason})"
+    return f"[{pages_crawled}/{max_pages}] {final_url}"
+
+
 def _format_unfetched_warning(summary: CrawlSummary, config: CrawlConfig) -> str:
     count = summary.unfetched_in_scope_links
     noun = "link was" if count == 1 else "links were"
@@ -234,7 +246,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 verbose=args.verbose,
             )
             print(f"Crawl scope: {describe_crawl_scope(config)}", file=sys.stderr)
-            summary = asyncio.run(crawl_site(config))
+            summary = asyncio.run(
+                crawl_site(
+                    config,
+                    on_progress=lambda result, count: print(
+                        _format_progress_line(result, count, config.max_pages),
+                        file=sys.stderr,
+                        flush=True,
+                    ),
+                )
+            )
             print(
                 f"Crawled {summary.page_count} pages and generated {summary.toc_count} index files in {summary.output_dir}"
             )

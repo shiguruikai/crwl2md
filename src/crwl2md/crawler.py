@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cache
@@ -21,7 +21,6 @@ from pydantic import BaseModel, Field, field_validator
 
 if TYPE_CHECKING:
     from crawl4ai import BrowserConfig, CrawlResult, FilterChain
-    from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 
 from crwl2md.extractors import (
     extract_base_url,
@@ -434,17 +433,105 @@ def build_filter_chain(config: CrawlConfig) -> FilterChain:
 
 
 @cache
-def _link_following_bfs_strategy_cls() -> type[BFSDeepCrawlStrategy]:
+def _link_following_bfs_strategy_cls() -> Any:
     from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
+    from crawl4ai.utils import normalize_url_for_deep_crawl
 
     class _LinkFollowingBFSStrategy(BFSDeepCrawlStrategy):
-        """BFS strategy without Crawl4AI's "host must contain a dot" rule, which rejects `localhost` and intranet hosts."""
+        """BFS strategy fixing Crawl4AI 0.9.5 traversal quirks and streaming per-page completion callbacks."""
+
+        def __init__(
+            self,
+            *args: Any,
+            on_page_fetched: Callable[[CrawlResult, int], None] | None = None,
+            **kwargs: Any,
+        ) -> None:
+            super().__init__(*args, **kwargs)
+            self._on_page_fetched = on_page_fetched
 
         async def can_process_url(self, url: str, depth: int) -> bool:
             parsed = urlparse(url)
             if parsed.scheme not in ("http", "https") or not parsed.netloc:
                 return False
             return depth == 0 or await self.filter_chain.apply(url)
+
+        async def _arun_batch(
+            self,
+            start_url: str,
+            crawler: Any,
+            config: Any,
+        ) -> list[CrawlResult]:
+            self._cancel_event = asyncio.Event()
+            visited: set[str] = set()
+            current_level: list[tuple[str, str | None]] = [(start_url, None)]
+            depths: dict[str, int] = {start_url: 0}
+            self._pages_crawled = 0
+            results: list[CrawlResult] = []
+
+            while current_level and not self._cancel_event.is_set():
+                if self._pages_crawled >= self.max_pages or await self._check_cancellation():
+                    break
+
+                next_level: list[tuple[str, str | None]] = []
+                remaining = self.max_pages - self._pages_crawled
+                if remaining < len(current_level):
+                    current_level = current_level[: max(int(remaining), 0)]
+                urls = [url for url, _ in current_level]
+                parents = dict(reversed(current_level))
+                for u in urls:
+                    visited.add(u)
+                    if normalized := normalize_url_for_deep_crawl(u, u):
+                        visited.add(normalized)
+
+                # Stream results within each BFS level so progress is reported as soon as each page finishes.
+                level_config = config.clone(deep_crawl_strategy=None, stream=True)
+                raw_level = await crawler.arun_many(urls=urls, config=level_config)
+                level_results: list[CrawlResult] = []
+                if hasattr(raw_level, "__aiter__"):
+                    async for item in raw_level:
+                        for result in _flatten_crawl_results(item):
+                            level_results.append(result)
+                            self._record_fetched_page(result, depths, parents, visited, results)
+                else:
+                    for result in _flatten_crawl_results(raw_level):
+                        level_results.append(result)
+                        self._record_fetched_page(result, depths, parents, visited, results)
+
+                for result in level_results:
+                    status_code = _effective_status_code(result)
+                    if result.success and (status_code is None or status_code < 400):
+                        depth = depths.get(result.url, 0)
+                        await self.link_discovery(result, _final_url(result), depth, visited, next_level, depths)
+
+                current_level = next_level
+
+            return results
+
+        def _record_fetched_page(
+            self,
+            result: CrawlResult,
+            depths: Mapping[str, int],
+            parents: Mapping[str, str | None],
+            visited: set[str],
+            results: list[CrawlResult],
+        ) -> None:
+            url = result.url
+            depth = depths.get(url, 0)
+            result.metadata = result.metadata or {}
+            result.metadata["depth"] = depth
+            result.metadata["parent_url"] = parents.get(url)
+            results.append(result)
+
+            final_url = _final_url(result)
+            visited.add(final_url)
+            if normalized := normalize_url_for_deep_crawl(final_url, url):
+                visited.add(normalized)
+
+            status_code = _effective_status_code(result)
+            if result.success and (status_code is None or status_code < 400):
+                self._pages_crawled += 1
+            if self._on_page_fetched is not None:
+                self._on_page_fetched(result, self._pages_crawled)
 
     return _LinkFollowingBFSStrategy
 
@@ -589,7 +676,9 @@ async def _analyze_unfetched_links(
     if not unfetched_keys:
         return 0, False, False
 
-    successful_fetches = sum(1 for res in all_results if res.success)
+    successful_fetches = sum(
+        1 for res in all_results if res.success and ((sc := _effective_status_code(res)) is None or sc < 400)
+    )
     hit_max_pages = successful_fetches >= config.max_pages
     hit_max_depth = config.max_depth is not None and has_unfetched_at_max_depth
     return len(unfetched_keys), hit_max_pages, hit_max_depth
@@ -614,10 +703,16 @@ def _write_files(output_dir: Path, files: Mapping[str, str]) -> None:
         dest.write_text(content, encoding="utf-8", newline="\n")
 
 
-async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> CrawlSummary:
+async def crawl_site(
+    config: CrawlConfig,
+    *,
+    crawler: Any | None = None,
+    on_progress: Callable[[CrawlResult, int], None] | None = None,
+) -> CrawlSummary:
     """Crawl a documentation site and write link-rewritten Markdown files and `index.md` TOCs.
 
     `crawler` replaces the Crawl4AI browser crawler and exists for tests.
+    `on_progress` is called with `(result, successful_page_count)` as each page fetch finishes.
     """
     _ensure_output_dir_writable(config.output_dir, force=config.force)
     from crawl4ai import CrawlerRunConfig
@@ -626,6 +721,14 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     include_external = len(_allowed_domains(config)) > 1
     strategy_cls = _link_following_bfs_strategy_cls()
     effective_max_depth = config.max_depth if config.max_depth is not None else sys.maxsize
+    progress_reported = False
+
+    def handle_page_fetched(result: CrawlResult, pages_crawled: int) -> None:
+        nonlocal progress_reported
+        progress_reported = True
+        if on_progress is not None:
+            on_progress(result, pages_crawled)
+
     run_config = CrawlerRunConfig(
         stream=False,
         prefetch=True,
@@ -634,6 +737,7 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
             max_pages=config.max_pages,
             filter_chain=filter_chain,
             include_external=include_external,
+            on_page_fetched=handle_page_fetched,
         ),
         wait_for=_CONTENT_READY_JS,
         wait_for_timeout=_CONTENT_WAIT_TIMEOUT_MS,
@@ -647,6 +751,13 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     raw_results = await _arun_with_browser(config.url, run_config, verbose=config.verbose, crawler=crawler)
 
     all_results = _flatten_crawl_results(raw_results)
+    if on_progress is not None and not progress_reported:
+        crawled_so_far = 0
+        for res in all_results:
+            status_code = _effective_status_code(res)
+            if res.success and (status_code is None or status_code < 400):
+                crawled_so_far += 1
+            on_progress(res, crawled_so_far)
     triaged = await _triage_results(all_results, config.url, filter_chain)
 
     extracted: list[_ExtractedPage] = []
@@ -780,6 +891,11 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     )
 
 
-def crawl_site_sync(config: CrawlConfig, *, crawler: Any | None = None) -> CrawlSummary:
+def crawl_site_sync(
+    config: CrawlConfig,
+    *,
+    crawler: Any | None = None,
+    on_progress: Callable[[CrawlResult, int], None] | None = None,
+) -> CrawlSummary:
     """Synchronous wrapper around `crawl_site` for callers without a running event loop."""
-    return asyncio.run(crawl_site(config, crawler=crawler))
+    return asyncio.run(crawl_site(config, crawler=crawler, on_progress=on_progress))

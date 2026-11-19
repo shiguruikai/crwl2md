@@ -42,7 +42,8 @@
 
 | Crawl4AI の挙動 | crwl2md 側の対処 |
 | --- | --- |
-| `BFSDeepCrawlStrategy.can_process_url` が、ドットを含まないホスト（`localhost` など）の URL を不正として拒否する。 | `_LinkFollowingBFSStrategy` で判定を上書きしている。直っていればこのクラスは削除できる。 |
+| `BFSDeepCrawlStrategy.can_process_url` が、ドットを含まないホスト（`localhost` など）の URL を不正として拒否する。 | `_LinkFollowingBFSStrategy` で判定を上書きしている。 |
+| `BFSDeepCrawlStrategy._arun_batch` が `visited` に開始 URL やリダイレクト先 URL を登録せず重複取得する。また HTTP 404/500 の結果も `max_pages` に算入してリンクをたどり、`_arun_stream` は `max_pages` 件目の結果を `yield` 前に破棄する。 | `_LinkFollowingBFSStrategy._arun_batch` で各 BFS 深さを `arun_many(..., stream=True)` でストリーミング受信しつつ、`visited` にリダイレクト先 URL も登録し、HTTP 400 未満の成功ページのみ `max_pages` 算入・リンク探索を行う。 |
 | `DomainFilter` は、URL からポートを除いたホスト名を取り出して比較する。 | `allowed_domains` には `netloc` ではなく `hostname` を渡す。 |
 | HTTP 404 や 500 のページも `success=True` で返す。リダイレクトされたページの `status_code` は最初の 301/302 のままになり、最終ページのステータスは `redirected_status_code` に入る。 | `_effective_status_code`（`redirected_status_code` を優先）が 400 以上の結果を失敗として扱う。 |
 | 約100バイト未満の HTML は、HTTP 200 でも「Near-empty content」としてボット遮断（`success=False`）と判定する。 | 対処していない。失敗の一覧に理由が表示される。 |

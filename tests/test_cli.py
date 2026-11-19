@@ -77,10 +77,15 @@ def test_cli_convert_reports_unwritable_output_path(tmp_path: Path, capsys: pyte
 def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
+    from crawl4ai import CrawlResult
+
     received: list[CrawlConfig] = []
 
-    async def fake_crawl_site(config: CrawlConfig) -> CrawlSummary:
+    async def fake_crawl_site(config: CrawlConfig, *, on_progress: object = None) -> CrawlSummary:
         received.append(config)
+        if callable(on_progress):
+            on_progress(CrawlResult(url="https://example.com/docs/", html="ok", success=True, status_code=200), 1)
+            on_progress(CrawlResult(url="https://example.com/docs/gone", html="", success=True, status_code=404), 1)
         return CrawlSummary(
             seed_url=config.url,
             output_dir=config.output_dir,
@@ -119,6 +124,8 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
     assert (received[0].delay, received[0].concurrency) == (1.5, 2)
     assert "Crawled 2 pages and generated 1 index files" in captured.out
     assert "Crawl scope: /docs/**" in captured.err
+    assert "[1/100] https://example.com/docs/" in captured.err
+    assert "[failed] https://example.com/docs/gone (HTTP 404)" in captured.err
     assert "  - https://example.com/docs/gone: HTTP 404" in captured.err
     assert "  - https://example.com/login" in captured.err
     assert "Warning: the seed URL was redirected to https://www.example.com/docs/" in captured.err
@@ -163,7 +170,7 @@ def test_cli_crawl_warns_when_in_scope_links_were_not_fetched(
     summary_kwargs: dict[str, object],
     expected_fragment: str,
 ):
-    async def fake_crawl_site(config: CrawlConfig) -> CrawlSummary:
+    async def fake_crawl_site(config: CrawlConfig, **_kwargs: object) -> CrawlSummary:
         return CrawlSummary(
             seed_url=config.url,
             output_dir=config.output_dir,
@@ -186,7 +193,7 @@ def test_cli_crawl_warns_when_in_scope_links_were_not_fetched(
 def test_cli_crawl_prints_top_level_directory_breakdown(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
-    async def fake_crawl_site(config: CrawlConfig) -> CrawlSummary:
+    async def fake_crawl_site(config: CrawlConfig, **_kwargs: object) -> CrawlSummary:
         return CrawlSummary(
             seed_url=config.url,
             output_dir=config.output_dir,

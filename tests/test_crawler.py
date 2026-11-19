@@ -527,6 +527,93 @@ async def test_bfs_strategy_follows_links_on_hosts_without_a_dot(tmp_path: Path)
     assert (in_scope, out_of_scope, not_http) == (True, False, False)
 
 
+async def test_bfs_strategy_streams_progress_deduplicates_redirects_and_ignores_404_links(tmp_path: Path):
+    from crawl4ai import CrawlerRunConfig
+
+    pages_by_url = {
+        "https://example.com/docs/intro": CrawlResult(
+            url="https://example.com/docs/intro",
+            redirected_url="https://example.com/docs/intro/",
+            html=_page("Intro"),
+            success=True,
+            status_code=301,
+            redirected_status_code=200,
+            links={
+                "internal": [
+                    {"href": "https://example.com/docs/intro/"},
+                    {"href": "https://example.com/docs/missing"},
+                    {"href": "https://example.com/docs/guide"},
+                ],
+                "external": [],
+            },
+        ),
+        "https://example.com/docs/missing": CrawlResult(
+            url="https://example.com/docs/missing",
+            html=_page("404"),
+            success=True,
+            status_code=404,
+            links={"internal": [{"href": "https://example.com/docs/from-404"}], "external": []},
+        ),
+        "https://example.com/docs/guide": CrawlResult(
+            url="https://example.com/docs/guide",
+            html=_page("Guide"),
+            success=True,
+            status_code=200,
+            links={"internal": [{"href": "https://example.com/docs/next"}], "external": []},
+        ),
+        "https://example.com/docs/next": CrawlResult(
+            url="https://example.com/docs/next",
+            html=_page("Next"),
+            success=True,
+            status_code=200,
+            links={"internal": [], "external": []},
+        ),
+    }
+
+    class StreamingFakeCrawler:
+        def __init__(self) -> None:
+            self.requested_batches: list[list[str]] = []
+
+        async def arun_many(self, urls: list[str], config: Any = None):
+            self.requested_batches.append(list(urls))
+
+            async def gen():
+                for u in urls:
+                    yield pages_by_url[u]
+
+            return gen()
+
+    progress_events: list[tuple[str, int]] = []
+    config = CrawlConfig(url="https://example.com/docs/intro", output_dir=tmp_path / "out", max_pages=3)
+    strategy = _link_following_bfs_strategy_cls()(
+        max_depth=2,
+        max_pages=3,
+        filter_chain=build_filter_chain(config),
+        on_page_fetched=lambda res, count: progress_events.append((res.redirected_url or res.url, count)),
+    )
+    fake_crawler = StreamingFakeCrawler()
+
+    results = await strategy._arun_batch("https://example.com/docs/intro", fake_crawler, CrawlerRunConfig())
+
+    assert fake_crawler.requested_batches == [
+        ["https://example.com/docs/intro"],
+        ["https://example.com/docs/missing", "https://example.com/docs/guide"],
+        ["https://example.com/docs/next"],
+    ]
+    assert [r.url for r in results] == [
+        "https://example.com/docs/intro",
+        "https://example.com/docs/missing",
+        "https://example.com/docs/guide",
+        "https://example.com/docs/next",
+    ]
+    assert progress_events == [
+        ("https://example.com/docs/intro/", 1),
+        ("https://example.com/docs/missing", 1),
+        ("https://example.com/docs/guide", 2),
+        ("https://example.com/docs/next", 3),
+    ]
+
+
 @pytest.mark.parametrize(
     ("include_patterns", "expected"),
     [
