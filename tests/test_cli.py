@@ -118,6 +118,17 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
     assert "Warning: the seed URL was redirected to https://www.example.com/docs/" in captured.err
 
 
+@pytest.mark.parametrize("bad_url", ["docs.example.com/intro", "ftp://example.com/docs", "https://"])
+def test_cli_crawl_rejects_url_without_http_scheme(tmp_path: Path, bad_url: str, capsys: pytest.CaptureFixture[str]):
+    exit_code = main(["crawl", bad_url, "-o", str(tmp_path)])
+
+    stderr = capsys.readouterr().err
+    assert exit_code == 1
+    assert stderr.startswith("Error: Invalid URL:")
+    assert "http://" in stderr
+    assert "Crawl scope:" not in stderr
+
+
 def test_cli_crawl_reports_invalid_regex_pattern(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     exit_code = main(["crawl", "https://example.com/docs/", "-o", str(tmp_path), "--include", "^("])
 

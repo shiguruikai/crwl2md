@@ -272,6 +272,11 @@ async def test_crawl_site_raises_with_reason_when_no_page_succeeds(tmp_path: Pat
         await crawl_site(config, crawler=_FakeCrawler(fake_results))
 
 
+def test_crawl_config_rejects_url_without_http_scheme(tmp_path: Path):
+    with pytest.raises(ValueError, match="http://"):
+        CrawlConfig(url="docs.example.com/intro", output_dir=tmp_path / "out")
+
+
 def test_resolve_output_path_rejects_paths_outside_output_dir(tmp_path: Path):
     out_dir = tmp_path / "out"
 

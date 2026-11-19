@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from bs4.dammit import UnicodeDammit
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 if TYPE_CHECKING:
     from crawl4ai import BrowserConfig, CrawlResult, FilterChain
@@ -48,6 +48,18 @@ _NON_HTML_ASSET_RE = re.compile(
 )
 
 
+def validate_http_url(url: str) -> str:
+    """Validate that `url` is an absolute `http://` or `https://` URL with a host."""
+    cleaned = url.strip()
+    parsed = urlparse(cleaned)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(
+            f"Invalid URL: {url!r}. URL must start with 'http://' or 'https://' and include a host "
+            "(for example, https://example.com/docs/)."
+        )
+    return cleaned
+
+
 class CrawlConfig(BaseModel):
     """Configuration for crawling a documentation website."""
 
@@ -66,6 +78,11 @@ class CrawlConfig(BaseModel):
     frontmatter: bool = False
     frontmatter_fields: list[FrontmatterField] | None = None
     verbose: bool = False
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, value: str) -> str:
+        return validate_http_url(value)
 
 
 class FailedPage(BaseModel):

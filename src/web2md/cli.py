@@ -8,7 +8,14 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from web2md import __version__
-from web2md.crawler import CrawlConfig, convert_single, crawl_site, describe_crawl_scope, install_browser
+from web2md.crawler import (
+    CrawlConfig,
+    convert_single,
+    crawl_site,
+    describe_crawl_scope,
+    install_browser,
+    validate_http_url,
+)
 from web2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
 
 
@@ -162,8 +169,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
 
         if args.command == "crawl":
+            url = validate_http_url(args.url)
             config = CrawlConfig(
-                url=args.url,
+                url=url,
                 output_dir=args.output,
                 max_depth=args.max_depth,
                 max_pages=args.max_pages,
