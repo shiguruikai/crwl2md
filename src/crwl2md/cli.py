@@ -17,6 +17,7 @@ from crwl2md.crawler import (
     crawl_site,
     describe_crawl_scope,
     install_browser,
+    parse_headers,
     validate_http_url,
 )
 from crwl2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
@@ -54,6 +55,57 @@ def _add_frontmatter_options(subparser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_browser_options(subparser: argparse.ArgumentParser) -> None:
+    subparser.add_argument(
+        "--header",
+        action="append",
+        default=[],
+        metavar="NAME:VALUE",
+        help="Extra HTTP header sent with browser requests ('Name: Value', repeatable).",
+    )
+    subparser.add_argument(
+        "--storage-state",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Playwright storage_state.json file (cookies and localStorage) for authenticated sessions.",
+    )
+    subparser.add_argument(
+        "--user-data-dir",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Persistent Chromium profile directory to reuse logged-in sessions.",
+    )
+    subparser.add_argument(
+        "--proxy",
+        default=None,
+        metavar="PROXY",
+        help="Proxy server ('http://host:port', 'socks5://host:port', 'http://user:pass@host:port', or 'host:port:user:pass').",
+    )
+    subparser.add_argument(
+        "--stealth",
+        action="store_true",
+        help="Enable stealth mode and navigator overrides to reduce anti-bot blocking.",
+    )
+    subparser.add_argument(
+        "--wait-for",
+        default=None,
+        metavar="CONDITION",
+        help="CSS selector or 'js:() => ...' condition to wait for before extracting HTML.",
+    )
+    subparser.add_argument(
+        "--scan-full-page",
+        action="store_true",
+        help="Scroll from top to bottom before extracting HTML so lazy-loaded content renders.",
+    )
+    subparser.add_argument(
+        "--flatten-shadow-dom",
+        action="store_true",
+        help="Inline open and closed Shadow DOM trees into the HTML before conversion.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for the `crwl2md` CLI."""
     parser = argparse.ArgumentParser(
@@ -69,6 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     convert_parser.add_argument("source", help="Source URL, file:// URI, or local HTML file path.")
     convert_parser.add_argument("-o", "--output", type=Path, help="Output Markdown file path (default: stdout).")
+    _add_browser_options(convert_parser)
     _add_frontmatter_options(convert_parser)
 
     crawl_parser = subparsers.add_parser(
@@ -134,6 +187,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow writing into a non-empty output directory and overwriting existing files.",
     )
+    _add_browser_options(crawl_parser)
     _add_frontmatter_options(crawl_parser)
     crawl_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose crawler logging.")
 
@@ -214,6 +268,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     args.source,
                     frontmatter=args.frontmatter,
                     frontmatter_fields=frontmatter_fields,
+                    headers=args.header,
+                    storage_state=args.storage_state,
+                    user_data_dir=args.user_data_dir,
+                    proxy=args.proxy,
+                    stealth=args.stealth,
+                    wait_for=args.wait_for,
+                    scan_full_page=args.scan_full_page,
+                    flatten_shadow_dom=args.flatten_shadow_dom,
                 )
             )
             if args.output is not None:
@@ -240,6 +302,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 respect_robots=args.respect_robots,
                 delay=args.delay,
                 concurrency=args.concurrency,
+                headers=parse_headers(args.header),
+                storage_state=args.storage_state,
+                user_data_dir=args.user_data_dir,
+                proxy=args.proxy,
+                stealth=args.stealth,
+                wait_for=args.wait_for,
+                scan_full_page=args.scan_full_page,
+                flatten_shadow_dom=args.flatten_shadow_dom,
                 frontmatter=args.frontmatter or frontmatter_fields is not None,
                 frontmatter_fields=frontmatter_fields,
                 force=args.force,

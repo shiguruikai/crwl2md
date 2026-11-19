@@ -73,7 +73,7 @@ options:
 ### `crwl2md convert --help`
 
 ```text
-usage: crwl2md convert [-h] [-o OUTPUT] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] source
+usage: crwl2md convert [-h] [-o OUTPUT] [--header NAME:VALUE] [--storage-state PATH] [--user-data-dir PATH] [--proxy PROXY] [--stealth] [--wait-for CONDITION] [--scan-full-page] [--flatten-shadow-dom] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] source
 
 positional arguments:
   source                Source URL, file:// URI, or local HTML file path.
@@ -81,6 +81,14 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   -o, --output OUTPUT   Output Markdown file path (default: stdout).
+  --header NAME:VALUE   Extra HTTP header sent with browser requests ('Name: Value', repeatable).
+  --storage-state PATH  Playwright storage_state.json file (cookies and localStorage) for authenticated sessions.
+  --user-data-dir PATH  Persistent Chromium profile directory to reuse logged-in sessions.
+  --proxy PROXY         Proxy server ('http://host:port', 'socks5://host:port', 'http://user:pass@host:port', or 'host:port:user:pass').
+  --stealth             Enable stealth mode and navigator overrides to reduce anti-bot blocking.
+  --wait-for CONDITION  CSS selector or 'js:() => ...' condition to wait for before extracting HTML.
+  --scan-full-page      Scroll from top to bottom before extracting HTML so lazy-loaded content renders.
+  --flatten-shadow-dom  Inline open and closed Shadow DOM trees into the HTML before conversion.
   --frontmatter         Prepend YAML frontmatter to output Markdown.
   --frontmatter-fields FRONTMATTER_FIELDS
                         Comma-separated YAML frontmatter fields (title,description,source,timestamp). Enables frontmatter when set.
@@ -89,7 +97,7 @@ options:
 ### `crwl2md crawl --help`
 
 ```text
-usage: crwl2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--force] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
+usage: crwl2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--force] [--header NAME:VALUE] [--storage-state PATH] [--user-data-dir PATH] [--proxy PROXY] [--stealth] [--wait-for CONDITION] [--scan-full-page] [--flatten-shadow-dom] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
 
 positional arguments:
   url                   Seed URL to start crawling from.
@@ -106,6 +114,14 @@ options:
   --concurrency N       Maximum number of pages fetched at the same time (default: 5).
   --respect-robots      Skip pages that the site's robots.txt disallows.
   --force               Allow writing into a non-empty output directory and overwriting existing files.
+  --header NAME:VALUE   Extra HTTP header sent with browser requests ('Name: Value', repeatable).
+  --storage-state PATH  Playwright storage_state.json file (cookies and localStorage) for authenticated sessions.
+  --user-data-dir PATH  Persistent Chromium profile directory to reuse logged-in sessions.
+  --proxy PROXY         Proxy server ('http://host:port', 'socks5://host:port', 'http://user:pass@host:port', or 'host:port:user:pass').
+  --stealth             Enable stealth mode and navigator overrides to reduce anti-bot blocking.
+  --wait-for CONDITION  CSS selector or 'js:() => ...' condition to wait for before extracting HTML.
+  --scan-full-page      Scroll from top to bottom before extracting HTML so lazy-loaded content renders.
+  --flatten-shadow-dom  Inline open and closed Shadow DOM trees into the HTML before conversion.
   --frontmatter         Prepend YAML frontmatter to output Markdown.
   --frontmatter-fields FRONTMATTER_FIELDS
                         Comma-separated YAML frontmatter fields (title,description,source,timestamp). Enables frontmatter when set.

@@ -110,6 +110,12 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
             "--force",
             *("--delay", "1.5"),
             *("--concurrency", "2"),
+            *("--header", "Authorization: Bearer tok"),
+            *("--proxy", "127.0.0.1:8080"),
+            "--stealth",
+            *("--wait-for", ".content"),
+            "--scan-full-page",
+            "--flatten-shadow-dom",
         ]
     )
 
@@ -122,6 +128,14 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
         True,
     )
     assert (received[0].delay, received[0].concurrency) == (1.5, 2)
+    assert received[0].headers == {"Authorization": "Bearer tok"}
+    assert received[0].proxy == "127.0.0.1:8080"
+    assert (received[0].stealth, received[0].wait_for, received[0].scan_full_page, received[0].flatten_shadow_dom) == (
+        True,
+        ".content",
+        True,
+        True,
+    )
     assert "Crawled 2 pages and generated 1 index files" in captured.out
     assert "Crawl scope: /docs/**" in captured.err
     assert "[1/100] https://example.com/docs/" in captured.err

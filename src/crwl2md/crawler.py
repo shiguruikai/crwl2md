@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
 
 from bs4.dammit import UnicodeDammit
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 if TYPE_CHECKING:
     from crawl4ai import BrowserConfig, CrawlResult, FilterChain
@@ -77,6 +77,76 @@ def validate_http_url(url: str) -> str:
     return cleaned
 
 
+def parse_headers(raw: Mapping[str, str] | Sequence[str] | None) -> dict[str, str]:
+    """Parse HTTP headers from a mapping or a sequence of `'Name: Value'` strings."""
+    if raw is None:
+        return {}
+    if isinstance(raw, Mapping):
+        parsed: dict[str, str] = {}
+        for key, value in raw.items():
+            name = str(key).strip()
+            if not name:
+                raise ValueError("HTTP header name must not be empty.")
+            parsed[name] = str(value).strip()
+        return parsed
+    if isinstance(raw, (str, bytes)):
+        raise ValueError("HTTP headers must be a mapping or a sequence of 'Name: Value' strings.")
+    parsed = {}
+    for item in raw:
+        name, sep, value = str(item).partition(":")
+        cleaned_name = name.strip()
+        if not sep or not cleaned_name:
+            raise ValueError(f"Invalid HTTP header: {item!r}. Expected 'Name: Value' format.")
+        parsed[cleaned_name] = value.strip()
+    return parsed
+
+
+def _validate_proxy(proxy: str | None) -> str | None:
+    if proxy is None:
+        return None
+    cleaned = proxy.strip()
+    if not cleaned:
+        raise ValueError("Proxy URL must not be empty.")
+    if "://" in cleaned:
+        parsed = urlparse(cleaned)
+        if parsed.scheme not in ("http", "https", "socks5") or not parsed.hostname:
+            raise ValueError(
+                f"Invalid proxy: {proxy!r}. Expected 'http://host:port', 'https://host:port', or 'socks5://host:port'."
+            )
+        return cleaned
+    parts = cleaned.split(":")
+    if len(parts) in (2, 4) and all(parts) and parts[1].isdigit():
+        return cleaned
+    raise ValueError(
+        f"Invalid proxy: {proxy!r}. Expected 'http://host:port', 'socks5://host:port', 'host:port', or 'host:port:user:pass'."
+    )
+
+
+def _validate_storage_and_profile(
+    storage_state: Path | None,
+    user_data_dir: Path | None,
+) -> None:
+    if storage_state is not None and user_data_dir is not None:
+        raise ValueError("Cannot specify both storage_state (--storage-state) and user_data_dir (--user-data-dir).")
+    if storage_state is not None and not storage_state.is_file():
+        raise FileNotFoundError(f"Storage state file not found: {storage_state}")
+    if user_data_dir is not None and user_data_dir.exists() and not user_data_dir.is_dir():
+        raise ValueError(f"User data path exists and is not a directory: {user_data_dir}")
+
+
+@dataclass(frozen=True)
+class _BrowserFetchOptions:
+    headers: dict[str, str] = field(default_factory=dict)
+    storage_state: Path | None = None
+    user_data_dir: Path | None = None
+    proxy: str | None = None
+    stealth: bool = False
+    wait_for: str | None = None
+    scan_full_page: bool = False
+    flatten_shadow_dom: bool = False
+    verbose: bool = False
+
+
 class CrawlConfig(BaseModel):
     """Configuration for crawling a documentation website."""
 
@@ -92,6 +162,14 @@ class CrawlConfig(BaseModel):
     # and lengthens the wait by itself after HTTP 429 / 503 responses.
     delay: float = Field(default=0.1, ge=0)
     concurrency: int = Field(default=5, ge=1)
+    headers: dict[str, str] = Field(default_factory=dict)
+    storage_state: Path | None = None
+    user_data_dir: Path | None = None
+    proxy: str | None = None
+    stealth: bool = False
+    wait_for: str | None = None
+    scan_full_page: bool = False
+    flatten_shadow_dom: bool = False
     frontmatter: bool = False
     frontmatter_fields: list[FrontmatterField] | None = None
     force: bool = False
@@ -101,6 +179,31 @@ class CrawlConfig(BaseModel):
     @classmethod
     def _validate_url(cls, value: str) -> str:
         return validate_http_url(value)
+
+    @field_validator("headers", mode="before")
+    @classmethod
+    def _validate_headers(cls, value: Any) -> dict[str, str]:
+        return parse_headers(value)
+
+    @field_validator("proxy")
+    @classmethod
+    def _validate_proxy_field(cls, value: str | None) -> str | None:
+        return _validate_proxy(value)
+
+    @field_validator("wait_for")
+    @classmethod
+    def _validate_wait_for(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("wait_for must not be empty.")
+        return cleaned
+
+    @model_validator(mode="after")
+    def _check_storage_and_profile(self) -> CrawlConfig:
+        _validate_storage_and_profile(self.storage_state, self.user_data_dir)
+        return self
 
 
 class FailedPage(BaseModel):
@@ -177,22 +280,38 @@ def _flatten_crawl_results(raw_result: Any) -> list[CrawlResult]:
     return []
 
 
-async def _arun_with_browser(url: str, run_config: Any, *, verbose: bool = False, crawler: Any | None = None) -> Any:
+async def _arun_with_browser(
+    url: str,
+    run_config: Any,
+    *,
+    options: _BrowserFetchOptions | None = None,
+    crawler: Any | None = None,
+) -> Any:
     if crawler is not None:
         return await crawler.arun(url, config=run_config)
 
-    from crawl4ai import BrowserConfig
+    from crawl4ai import BrowserConfig, ProxyConfig
     from playwright.async_api import Error as PlaywrightError
 
+    opts = options or _BrowserFetchOptions()
     # Crawl4AI prints a promotional banner unless told otherwise; an explicit user setting still wins.
     os.environ.setdefault("CRAWL4AI_NO_CLOUD_NOTICE", "1")
+    proxy_cfg = ProxyConfig.from_string(opts.proxy) if opts.proxy else None
+    browser_kwargs: dict[str, Any] = {
+        "headless": True,
+        "text_mode": True,
+        "user_agent": await _get_desktop_chrome_user_agent(),
+        "headers": dict(opts.headers),
+        "storage_state": str(opts.storage_state) if opts.storage_state is not None else None,
+        "use_persistent_context": opts.user_data_dir is not None,
+        "proxy_config": proxy_cfg,
+        "enable_stealth": opts.stealth,
+        "verbose": opts.verbose,
+    }
+    if opts.user_data_dir is not None:
+        browser_kwargs["user_data_dir"] = str(opts.user_data_dir)
     # text_mode skips image requests since crwl2md only extracts HTML and keeps image URLs.
-    browser_config = BrowserConfig(
-        headless=True,
-        text_mode=True,
-        user_agent=await _get_desktop_chrome_user_agent(),
-        verbose=verbose,
-    )
+    browser_config = BrowserConfig(**browser_kwargs)
     try:
         async with _create_browser_crawler(browser_config) as active_crawler:
             return await active_crawler.arun(url, config=run_config)
@@ -211,19 +330,51 @@ async def _arun_with_browser(url: str, run_config: Any, *, verbose: bool = False
         raise
 
 
-async def _fetch_html_with_browser(url: str, *, crawler: Any | None = None) -> tuple[str, str]:
-    from crawl4ai import CrawlerRunConfig
+def _build_crawler_run_config(
+    options: _BrowserFetchOptions,
+    *,
+    deep_crawl_strategy: Any | None = None,
+    check_robots_txt: bool = False,
+    mean_delay: float = 0.1,
+    semaphore_count: int = 5,
+) -> Any:
+    from crawl4ai import CrawlerRunConfig, ProxyConfig
 
+    proxy_cfg = ProxyConfig.from_string(options.proxy) if options.proxy else None
+    wait_for = options.wait_for if options.wait_for is not None else _CONTENT_READY_JS
     # `prefetch=True` returns raw HTML and links without running Crawl4AI's own HTML cleaner or html2text converter.
-    run_config = CrawlerRunConfig(
-        stream=False,
-        prefetch=True,
-        wait_for=_CONTENT_READY_JS,
-        wait_for_timeout=_CONTENT_WAIT_TIMEOUT_MS,
-        max_retries=1,
-        verbose=False,
-    )
-    raw = await _arun_with_browser(url, run_config, crawler=crawler)
+    # Anti-bot sensors often run after `domcontentloaded`, so stealth mode waits for the `load` event.
+    run_kwargs: dict[str, Any] = {
+        "stream": False,
+        "prefetch": True,
+        "deep_crawl_strategy": deep_crawl_strategy,
+        "proxy_config": proxy_cfg,
+        "wait_until": "load" if options.stealth else "domcontentloaded",
+        "wait_for": wait_for,
+        "scan_full_page": options.scan_full_page,
+        "flatten_shadow_dom": options.flatten_shadow_dom,
+        "simulate_user": options.stealth,
+        "override_navigator": options.stealth,
+        "max_retries": 1,
+        "check_robots_txt": check_robots_txt,
+        "mean_delay": mean_delay,
+        "semaphore_count": semaphore_count,
+        "verbose": options.verbose,
+    }
+    if options.wait_for is None:
+        run_kwargs["wait_for_timeout"] = _CONTENT_WAIT_TIMEOUT_MS
+    return CrawlerRunConfig(**run_kwargs)
+
+
+async def _fetch_html_with_browser(
+    url: str,
+    *,
+    options: _BrowserFetchOptions | None = None,
+    crawler: Any | None = None,
+) -> tuple[str, str]:
+    opts = options or _BrowserFetchOptions()
+    run_config = _build_crawler_run_config(opts)
+    raw = await _arun_with_browser(url, run_config, options=opts, crawler=crawler)
     results = _flatten_crawl_results(raw)
     if not results:
         raise RuntimeError(f"Failed to fetch {url}: no result returned by crawler")
@@ -253,6 +404,14 @@ async def convert_single(
     frontmatter: bool = False,
     frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
     *,
+    headers: Mapping[str, str] | Sequence[str] | None = None,
+    storage_state: str | PathLike[str] | None = None,
+    user_data_dir: str | PathLike[str] | None = None,
+    proxy: str | None = None,
+    stealth: bool = False,
+    wait_for: str | None = None,
+    scan_full_page: bool = False,
+    flatten_shadow_dom: bool = False,
     crawler: Any | None = None,
 ) -> str:
     """Convert a single HTTP(S) URL, `file://` URI, or local HTML file path into Markdown.
@@ -260,9 +419,29 @@ async def convert_single(
     HTTP(S) URLs are rendered with the headless browser; `crawler` replaces it for tests.
     """
     resolved_fields = _resolve_frontmatter_fields(frontmatter, frontmatter_fields)
+    parsed_headers = parse_headers(headers)
+    resolved_storage = Path(storage_state) if storage_state is not None else None
+    resolved_profile = Path(user_data_dir) if user_data_dir is not None else None
+    _validate_storage_and_profile(resolved_storage, resolved_profile)
+    validated_proxy = _validate_proxy(proxy)
+    cleaned_wait_for: str | None = None
+    if wait_for is not None:
+        cleaned_wait_for = wait_for.strip()
+        if not cleaned_wait_for:
+            raise ValueError("wait_for must not be empty.")
 
     if isinstance(source, str) and source.startswith(("http://", "https://")):
-        html, final_url = await _fetch_html_with_browser(source, crawler=crawler)
+        options = _BrowserFetchOptions(
+            headers=parsed_headers,
+            storage_state=resolved_storage,
+            user_data_dir=resolved_profile,
+            proxy=validated_proxy,
+            stealth=stealth,
+            wait_for=cleaned_wait_for,
+            scan_full_page=scan_full_page,
+            flatten_shadow_dom=flatten_shadow_dom,
+        )
+        html, final_url = await _fetch_html_with_browser(source, options=options, crawler=crawler)
         md = extract_markdown(html, url=final_url)
         if not md.strip():
             raise RuntimeError(f"Empty page content for {final_url}")
@@ -291,11 +470,32 @@ def convert_single_sync(
     frontmatter: bool = False,
     frontmatter_fields: Sequence[FrontmatterField] | str | None = None,
     *,
+    headers: Mapping[str, str] | Sequence[str] | None = None,
+    storage_state: str | PathLike[str] | None = None,
+    user_data_dir: str | PathLike[str] | None = None,
+    proxy: str | None = None,
+    stealth: bool = False,
+    wait_for: str | None = None,
+    scan_full_page: bool = False,
+    flatten_shadow_dom: bool = False,
     crawler: Any | None = None,
 ) -> str:
     """Synchronous wrapper around `convert_single` for callers without a running event loop."""
     return asyncio.run(
-        convert_single(source, frontmatter=frontmatter, frontmatter_fields=frontmatter_fields, crawler=crawler)
+        convert_single(
+            source,
+            frontmatter=frontmatter,
+            frontmatter_fields=frontmatter_fields,
+            headers=headers,
+            storage_state=storage_state,
+            user_data_dir=user_data_dir,
+            proxy=proxy,
+            stealth=stealth,
+            wait_for=wait_for,
+            scan_full_page=scan_full_page,
+            flatten_shadow_dom=flatten_shadow_dom,
+            crawler=crawler,
+        )
     )
 
 
@@ -717,7 +917,6 @@ async def crawl_site(
     `on_progress` is called with `(result, successful_page_count)` as each page fetch finishes.
     """
     _ensure_output_dir_writable(config.output_dir, force=config.force)
-    from crawl4ai import CrawlerRunConfig
 
     filter_chain = build_filter_chain(config)
     include_external = len(_allowed_domains(config)) > 1
@@ -731,9 +930,19 @@ async def crawl_site(
         if on_progress is not None:
             on_progress(result, pages_crawled)
 
-    run_config = CrawlerRunConfig(
-        stream=False,
-        prefetch=True,
+    options = _BrowserFetchOptions(
+        headers=dict(config.headers),
+        storage_state=config.storage_state,
+        user_data_dir=config.user_data_dir,
+        proxy=config.proxy,
+        stealth=config.stealth,
+        wait_for=config.wait_for,
+        scan_full_page=config.scan_full_page,
+        flatten_shadow_dom=config.flatten_shadow_dom,
+        verbose=config.verbose,
+    )
+    run_config = _build_crawler_run_config(
+        options,
         deep_crawl_strategy=strategy_cls(
             max_depth=effective_max_depth,
             max_pages=config.max_pages,
@@ -741,16 +950,12 @@ async def crawl_site(
             include_external=include_external,
             on_page_fetched=handle_page_fetched,
         ),
-        wait_for=_CONTENT_READY_JS,
-        wait_for_timeout=_CONTENT_WAIT_TIMEOUT_MS,
-        max_retries=1,
         check_robots_txt=config.respect_robots,
         mean_delay=config.delay,
         semaphore_count=config.concurrency,
-        verbose=config.verbose,
     )
 
-    raw_results = await _arun_with_browser(config.url, run_config, verbose=config.verbose, crawler=crawler)
+    raw_results = await _arun_with_browser(config.url, run_config, options=options, crawler=crawler)
 
     all_results = _flatten_crawl_results(raw_results)
     if on_progress is not None and not progress_reported:

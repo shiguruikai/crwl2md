@@ -27,6 +27,7 @@ from crwl2md.crawler import (
     build_filter_chain,
     compile_url_pattern,
     describe_crawl_scope,
+    parse_headers,
 )
 
 
@@ -1046,3 +1047,117 @@ async def test_convert_single_local_file_omits_frontmatter_without_values(tmp_pa
     md = await convert_single(str(html_file), frontmatter_fields=["source"])
 
     assert md.startswith("# Local\n")
+
+
+async def test_crawl_site_forwards_auth_stealth_proxy_and_dynamic_page_options(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    captured_browser_configs: list[Any] = []
+    captured_run_configs: list[Any] = []
+
+    class FakeBrowserCrawler(_FakeCrawler):
+        async def __aenter__(self) -> FakeBrowserCrawler:
+            return self
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            return None
+
+        async def arun(
+            self, url: str, config: Any = None
+        ) -> list[CrawlResult] | list[CrawlResultContainer[CrawlResult]]:
+            captured_run_configs.append(config)
+            return await super().arun(url, config=config)
+
+    state_file = tmp_path / "storage_state.json"
+    state_file.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    results = [CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)]
+
+    def fake_crawler_factory(browser_config: Any) -> FakeBrowserCrawler:
+        captured_browser_configs.append(browser_config)
+        return FakeBrowserCrawler(results)
+
+    monkeypatch.setattr("crwl2md.crawler._create_browser_crawler", fake_crawler_factory)
+    config = CrawlConfig(
+        url="https://example.com/docs/",
+        output_dir=tmp_path / "out",
+        headers=parse_headers(["Authorization: Bearer secret", "Accept-Language: ja"]),
+        storage_state=state_file,
+        proxy="http://user:pass@proxy.example.com:8080",
+        stealth=True,
+        wait_for="css:.ready",
+        scan_full_page=True,
+        flatten_shadow_dom=True,
+    )
+
+    await crawl_site(config)
+
+    b_cfg = captured_browser_configs[0]
+    r_cfg = captured_run_configs[0]
+    assert b_cfg.headers["Authorization"] == "Bearer secret"
+    assert b_cfg.headers["Accept-Language"] == "ja"
+    assert b_cfg.storage_state == str(state_file)
+    assert b_cfg.enable_stealth is True
+    assert b_cfg.proxy_config.server == "http://proxy.example.com:8080"
+    assert b_cfg.proxy_config.username == "user"
+    assert r_cfg.proxy_config.server == "http://proxy.example.com:8080"
+    assert r_cfg.wait_until == "load"
+    assert r_cfg.wait_for == "css:.ready"
+    assert r_cfg.wait_for_timeout is None
+    assert r_cfg.scan_full_page is True
+    assert r_cfg.flatten_shadow_dom is True
+    assert r_cfg.simulate_user is True
+    assert r_cfg.override_navigator is True
+
+
+async def test_convert_single_forwards_user_data_dir_to_persistent_browser_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    captured_browser_configs: list[Any] = []
+    profile_dir = tmp_path / "chrome-profile"
+    profile_dir.mkdir()
+
+    class FakeBrowserCrawler(_FakeCrawler):
+        async def __aenter__(self) -> FakeBrowserCrawler:
+            return self
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            return None
+
+    results = [CrawlResult(url="https://example.com/docs/page", html=_page("Page"), success=True, status_code=200)]
+    monkeypatch.setattr(
+        "crwl2md.crawler._create_browser_crawler",
+        lambda cfg: (captured_browser_configs.append(cfg), FakeBrowserCrawler(results))[1],
+    )
+
+    md = await convert_single("https://example.com/docs/page", user_data_dir=profile_dir)
+
+    assert md.startswith("# Page\n")
+    assert captured_browser_configs[0].use_persistent_context is True
+    assert captured_browser_configs[0].user_data_dir == str(profile_dir)
+
+
+def test_crawl_config_validates_headers_proxy_and_storage_options(tmp_path: Path):
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{}", encoding="utf-8")
+    not_a_dir = tmp_path / "file.txt"
+    not_a_dir.write_text("x", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid HTTP header"):
+        parse_headers(["MissingColon"])
+    with pytest.raises(ValueError, match="must not be empty"):
+        CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", headers={" ": "val"})
+    with pytest.raises(ValueError, match="Invalid proxy"):
+        CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", proxy="bad-proxy")
+    with pytest.raises(ValueError, match="Cannot specify both"):
+        CrawlConfig(
+            url="https://example.com/docs/",
+            output_dir=tmp_path / "out",
+            storage_state=state_file,
+            user_data_dir=tmp_path / "profile",
+        )
+    with pytest.raises(FileNotFoundError, match="Storage state file not found"):
+        CrawlConfig(
+            url="https://example.com/docs/", output_dir=tmp_path / "out", storage_state=tmp_path / "missing.json"
+        )
+    with pytest.raises(ValueError, match="not a directory"):
+        CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out", user_data_dir=not_a_dir)
