@@ -13,7 +13,7 @@ from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlparse
 
 from pydantic import BaseModel
 
-from web2md.markdown_code import iter_lines_with_code_flag, sub_outside_code_spans
+from crwl2md.markdown_code import iter_lines_with_code_flag, sub_outside_code_spans
 
 FrontmatterField = Literal["title", "description", "source", "timestamp"]
 FRONTMATTER_FIELDS: tuple[FrontmatterField, ...] = ("title", "description", "source", "timestamp")

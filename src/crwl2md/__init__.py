@@ -1,6 +1,6 @@
 from importlib.metadata import version
 
-from web2md.crawler import (
+from crwl2md.crawler import (
     BrowserNotInstalledError,
     CrawlConfig,
     CrawlSummary,
@@ -11,8 +11,8 @@ from web2md.crawler import (
     crawl_site_sync,
     install_browser,
 )
-from web2md.extractors import extract_markdown
-from web2md.site_builder import FRONTMATTER_FIELDS, FrontmatterField
+from crwl2md.extractors import extract_markdown
+from crwl2md.site_builder import FRONTMATTER_FIELDS, FrontmatterField
 
 __all__ = [
     "FRONTMATTER_FIELDS",
@@ -30,4 +30,4 @@ __all__ = [
     "install_browser",
 ]
 
-__version__ = version("web2md")
+__version__ = version("crwl2md")

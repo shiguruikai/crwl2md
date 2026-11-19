@@ -11,7 +11,7 @@
 
 ## 技術スタック
 
-- **言語・ランタイム**: Python 3.14
+- **言語・ランタイム**: Python 3.13+（開発環境は 3.14）
 - **パッケージ・環境管理**: uv, mise
 - **タスクランナー**: go-task（`task`）
 - **クローラー・ブラウザ**: Crawl4AI（Playwright）
@@ -23,24 +23,24 @@
 ## コマンド
 
 - 定型操作は [Taskfile.yml](Taskfile.yml) に集約しており、`task <TASK>`（`setup`, `format`, `lint`, `test`）で実行する。
-- `crawl` が使うヘッドレスブラウザは `uv run web2md setup` でダウンロードする（`task setup` に含まれる）。テストはブラウザを使わない。
+- `crawl` が使うヘッドレスブラウザは `uv run crwl2md setup` でダウンロードする（`task setup` に含まれる）。テストはブラウザを使わない。
 - 抽出結果と目次生成のベンチマークは [scripts/compare_methods.py](scripts/compare_methods.py) を `uv run python` で実行する。
 
 ## 構成
 
-- [src/web2md/\_\_init\_\_.py](src/web2md/__init__.py): 公開 API のエクスポート
-- [src/web2md/extractors.py](src/web2md/extractors.py): HTML→Markdown 変換（本文コンテナの選択、不要要素の除去、markdownify による変換）、メタデータ抽出、サイドバーリンク抽出
-- [src/web2md/markdown_code.py](src/web2md/markdown_code.py): Markdown のフェンス付きコードブロックとインラインコードの判定（後処理やリンク書き換えの対象から外すために使う）
-- [src/web2md/site_builder.py](src/web2md/site_builder.py): URL→相対パス設計、Markdown 内の相対リンク書き換え、YAML フロントマター生成、階層目次（`index.md`）生成
-- [src/web2md/crawler.py](src/web2md/crawler.py): 単一ページ変換（`convert_single`, `convert_single_sync`）および Crawl4AI によるサイトクロール（`crawl_site`, `crawl_site_sync`）
-- [src/web2md/cli.py](src/web2md/cli.py): `web2md` CLI エントリポイント
+- [src/crwl2md/\_\_init\_\_.py](src/crwl2md/__init__.py): 公開 API のエクスポート
+- [src/crwl2md/extractors.py](src/crwl2md/extractors.py): HTML→Markdown 変換（本文コンテナの選択、不要要素の除去、markdownify による変換）、メタデータ抽出、サイドバーリンク抽出
+- [src/crwl2md/markdown_code.py](src/crwl2md/markdown_code.py): Markdown のフェンス付きコードブロックとインラインコードの判定（後処理やリンク書き換えの対象から外すために使う）
+- [src/crwl2md/site_builder.py](src/crwl2md/site_builder.py): URL→相対パス設計、Markdown 内の相対リンク書き換え、YAML フロントマター生成、階層目次（`index.md`）生成
+- [src/crwl2md/crawler.py](src/crwl2md/crawler.py): 単一ページ変換（`convert_single`, `convert_single_sync`）および Crawl4AI によるサイトクロール（`crawl_site`, `crawl_site_sync`）
+- [src/crwl2md/cli.py](src/crwl2md/cli.py): `crwl2md` CLI エントリポイント
 - [docs/comparison.md](docs/comparison.md): 各変換手法・目次生成手法の検証結果
 
 ## Crawl4AI 側の不具合・仕様と対処
 
-`crawl4ai` は 0.9 系に固定している（[pyproject.toml](pyproject.toml)）。次の表は、0.9.5 で確認した Crawl4AI 側の挙動と、web2md 側の対処である。上限を上げるときは、各項目の挙動が変わっていないかを実クロールで確認し、不要になった対処は削除する。
+`crawl4ai` は 0.9 系に固定している（[pyproject.toml](pyproject.toml)）。次の表は、0.9.5 で確認した Crawl4AI 側の挙動と、crwl2md 側の対処である。上限を上げるときは、各項目の挙動が変わっていないかを実クロールで確認し、不要になった対処は削除する。
 
-| Crawl4AI の挙動 | web2md 側の対処 |
+| Crawl4AI の挙動 | crwl2md 側の対処 |
 | --- | --- |
 | `BFSDeepCrawlStrategy.can_process_url` が、ドットを含まないホスト（`localhost` など）の URL を不正として拒否する。 | `_LinkFollowingBFSStrategy` で判定を上書きしている。直っていればこのクラスは削除できる。 |
 | `DomainFilter` は、URL からポートを除いたホスト名を取り出して比較する。 | `allowed_domains` には `netloc` ではなく `hostname` を渡す。 |

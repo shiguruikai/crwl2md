@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from bs4 import BeautifulSoup
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 
-from web2md.extractors import extract_markdown, extract_page_metadata, extract_sidebar_links
-from web2md.site_builder import CrawledPageDoc, compute_relative_paths, generate_toc_files
+from crwl2md.extractors import extract_markdown, extract_page_metadata, extract_sidebar_links
+from crwl2md.site_builder import CrawledPageDoc, compute_relative_paths, generate_toc_files
 
 
 @dataclass(frozen=True)
@@ -158,7 +158,7 @@ def convert_with_crawl4ai(html: str, url: str) -> str:
     return result.raw_markdown.strip()
 
 
-# web2md's extractor compared against the Crawl4AI conversion that it was chosen over.
+# crwl2md's extractor compared against the Crawl4AI conversion that it was chosen over.
 CONVERTERS: dict[str, Callable[[str, str], str]] = {
     "dom-markdownify": extract_markdown,
     "crawl4ai": convert_with_crawl4ai,

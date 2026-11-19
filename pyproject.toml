@@ -1,9 +1,25 @@
 [project]
-name = "web2md"
+name = "crwl2md"
 version = "0.1.0"
 description = "CLI tool to crawl websites and convert pages into Markdown files"
 readme = "README.md"
-requires-python = ">=3.14,<3.15"
+requires-python = ">=3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "shiguruikai" }]
+keywords = ["cli", "crawl4ai", "crawler", "documentation", "html", "markdown"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Documentation",
+  "Topic :: Text Processing :: Markup :: Markdown",
+  "Typing :: Typed",
+]
 dependencies = [
   "beautifulsoup4>=4.15.0",
   "crawl4ai>=0.9.5,<0.10",
@@ -13,8 +29,13 @@ dependencies = [
   "pydantic>=2.14.3",
 ]
 
+[project.urls]
+Homepage = "https://github.com/shiguruikai/crwl2md"
+Issues = "https://github.com/shiguruikai/crwl2md/issues"
+Repository = "https://github.com/shiguruikai/crwl2md"
+
 [project.scripts]
-web2md = "web2md.cli:main"
+crwl2md = "crwl2md.cli:main"
 
 [dependency-groups]
 dev = [
@@ -33,6 +54,7 @@ build-backend = "uv_build"
 include = ["src", "tests", "scripts"]
 venvPath = "."
 venv = ".venv"
+pythonVersion = "3.13"
 typeCheckingMode = "standard"
 
 [tool.pytest.ini_options]

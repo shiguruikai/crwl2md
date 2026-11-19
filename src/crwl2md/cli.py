@@ -8,8 +8,8 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from web2md import __version__
-from web2md.crawler import (
+from crwl2md import __version__
+from crwl2md.crawler import (
     CrawlConfig,
     CrawlSummary,
     convert_single,
@@ -18,7 +18,7 @@ from web2md.crawler import (
     install_browser,
     validate_http_url,
 )
-from web2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
+from crwl2md.site_builder import FRONTMATTER_FIELDS, parse_frontmatter_fields
 
 
 def _is_expected_cli_error(exc: BaseException) -> bool:
@@ -54,9 +54,9 @@ def _add_frontmatter_options(subparser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser for the `web2md` CLI."""
+    """Build the argument parser for the `crwl2md` CLI."""
     parser = argparse.ArgumentParser(
-        prog="web2md",
+        prog="crwl2md",
         description="Convert HTML pages or crawl documentation sites into Markdown with table of contents.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -182,7 +182,7 @@ def _format_unfetched_warning(summary: CrawlSummary, config: CrawlConfig) -> str
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the `web2md` CLI entrypoint and return a process exit code."""
+    """Run the `crwl2md` CLI entrypoint and return a process exit code."""
     parser = build_parser()
     args = parser.parse_args(argv)
 

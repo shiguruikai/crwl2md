@@ -1,53 +1,61 @@
-# web2md
+# crwl2md
 
-ウェブサイトや HTML をクロールし、目次（`index.md`）付きの Markdown ファイル群へ変換する Python 製 CLI ツールです。
+[日本語](https://github.com/shiguruikai/crwl2md/blob/HEAD/README.ja.md)
 
-こんなときに使う:
+A Python CLI tool that crawls websites or converts HTML pages into clean Markdown files with hierarchical tables of contents (`index.md`). Requires Python 3.13 or later.
 
-- HTML を Markdown に変換したい
-- ウェブ上で公開されている技術系ドキュメントをクロールし、目次を含む Markdown ファイル群に変換したい
+Use `crwl2md` when you want to:
 
-## インストール
+- Convert a single web page or local HTML file into Markdown
+- Crawl a public or local technical documentation site into a linked tree of Markdown files with `index.md` tables of contents
 
-前提として `uv` がインストールされている必要があります。
+## Installation
 
 ```bash
-# GitHub リポジトリからグローバルインストール
-uv tool install git+https://github.com/shiguruikai/web2md.git
+# Install globally with uv (recommended)
+uv tool install crwl2md
 
-# ローカルのリポジトリからインストールする場合（開発時は -e .）
+# Or install with pipx / pip
+pipx install crwl2md
+pip install crwl2md
+
+# Download the headless browser used for fetching URLs (about 290 MB)
+crwl2md setup
+```
+
+To install the latest development version from GitHub or a local checkout:
+
+```bash
+uv tool install git+https://github.com/shiguruikai/crwl2md.git
+# Or from a local clone (use -e . for editable install)
 uv tool install .
-
-# URL 取得に使うヘッドレスブラウザをダウンロード（約 290 MB）
-web2md setup
 ```
 
-- `web2md` コマンドが見つからない場合は `uv tool update-shell` を実行し、シェルを再起動してください。
-- `web2md setup` は、URL を取得する `crawl` と `convert <URL>` で必要です。ローカル HTML ファイルの変換（`convert <PATH>`）はブラウザなしで動きます。
-- Linux 環境で Chromium の依存ライブラリ（`libnss3` など）が不足している場合は、`web2md setup --with-deps` を実行してください（必要に応じて `sudo` が求められます）。
-- `uv tool upgrade web2md` で更新したあとも `web2md setup` を実行してください。ブラウザは Playwright のバージョンごとに決まったビルドが必要で、ブラウザだけを更新することはできません。合っていない場合、`crawl` や `convert <URL>` は `web2md setup` の実行を求めて終了します。
-- PyPI には、別の作者による同名のパッケージ `web2md` があります。`uv tool install web2md` や `uvx web2md` のように名前だけを指定すると、そちらがインストールされます。上記のとおり、リポジトリの URL またはパスを指定してください。
+- If the `crwl2md` command is not found after installing with `uv`, run `uv tool update-shell` and restart your shell.
+- `crwl2md setup` is required for `crawl` and `convert <URL>`. Converting local HTML files (`convert <PATH>`) works without a browser.
+- On Linux, if Chromium's OS-level dependencies (such as `libnss3`) are missing, run `crwl2md setup --with-deps` (may prompt for `sudo`).
+- Re-run `crwl2md setup` after upgrading (for example, `uv tool upgrade crwl2md`). Playwright requires a specific browser build per release, and `crawl` or `convert <URL>` will exit and prompt you to run `crwl2md setup` if the installed browser does not match.
 
-## アンインストール
+## Uninstallation
 
 ```bash
-uv tool uninstall web2md
+uv tool uninstall crwl2md
 ```
 
-## 開発セットアップ
+## Development Setup
 
 ```bash
 task setup
 ```
 
-## 使い方
+## Usage
 
-インストールしない場合は `uv run web2md` で実行してください。
+If you have not installed the tool globally, invoke it with `uv run crwl2md`.
 
-### `web2md --help`
+### `crwl2md --help`
 
 ```text
-usage: web2md [-h] [--version] {convert,crawl,setup} ...
+usage: crwl2md [-h] [--version] {convert,crawl,setup} ...
 
 Convert HTML pages or crawl documentation sites into Markdown with table of contents.
 
@@ -62,10 +70,10 @@ options:
   --version             show program's version number and exit
 ```
 
-### `web2md convert --help`
+### `crwl2md convert --help`
 
 ```text
-usage: web2md convert [-h] [-o OUTPUT] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] source
+usage: crwl2md convert [-h] [-o OUTPUT] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] source
 
 positional arguments:
   source                Source URL, file:// URI, or local HTML file path.
@@ -78,10 +86,10 @@ options:
                         Comma-separated YAML frontmatter fields (title,description,source,timestamp). Enables frontmatter when set.
 ```
 
-### `web2md crawl --help`
+### `crwl2md crawl --help`
 
 ```text
-usage: web2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--force] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
+usage: crwl2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--force] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
 
 positional arguments:
   url                   Seed URL to start crawling from.
@@ -104,38 +112,38 @@ options:
   -v, --verbose         Enable verbose crawler logging.
 ```
 
-### `web2md setup --help`
+### `crwl2md setup --help`
 
 ```text
-usage: web2md setup [-h] [--with-deps]
+usage: crwl2md setup [-h] [--with-deps]
 
 options:
   -h, --help   show this help message and exit
   --with-deps  Also install OS-level libraries required by Chromium on Linux (may prompt for sudo).
 ```
 
-### 実行例
+### Examples
 
 ```bash
-# 単一ページ（URL またはローカル HTML）の変換
-web2md convert https://docs.elgato.com/streamdeck/cli/intro -o intro.md
+# Convert a single page (URL or local HTML file)
+crwl2md convert https://docs.elgato.com/streamdeck/cli/intro -o intro.md
 
-# ドキュメントサイトのクロールと目次生成
-web2md crawl https://docs.elgato.com/streamdeck/cli/intro \
+# Crawl a documentation site and generate hierarchical index.md TOCs
+crwl2md crawl https://docs.elgato.com/streamdeck/cli/intro \
   --include "https://docs.elgato.com/streamdeck/cli/**" \
   --frontmatter-fields title,description,source,timestamp \
   -o ./output/streamdeck-cli
 
-# ローカルで起動したドキュメントサーバーのクロール
-web2md crawl http://localhost:3000/docs/ -o ./output/local-docs
+# Crawl a locally running documentation server
+crwl2md crawl http://localhost:3000/docs/ -o ./output/local-docs
 ```
 
-Python API 例:
+Python API example:
 
 ```python
 from pathlib import Path
 
-from web2md import CrawlConfig, convert_single_sync, crawl_site_sync
+from crwl2md import CrawlConfig, convert_single_sync, crawl_site_sync
 
 markdown = convert_single_sync(Path("page.html"), frontmatter=True)
 
@@ -150,90 +158,90 @@ for page in summary.failed_pages:
     print(page.url, page.reason)
 ```
 
-## クロール範囲
+## Crawl Scope
 
-`crawl` は、起点 URL と同じホストのうち、次の範囲にあるリンクだけを辿ります。適用する範囲は、開始時に `Crawl scope: ...` として標準エラー出力に表示します。
+`crawl` only follows links on the same host within the default scope below. The active scope is printed to stderr as `Crawl scope: ...` when crawling starts.
 
-| 起点 URL | 既定の範囲 |
+| Seed URL | Default scope |
 | --- | --- |
-| `https://example.com/docs/intro` | `/docs` 配下（起点と同じディレクトリのページを含む） |
-| `https://example.com/docs/` | `/docs` 配下 |
-| `https://example.com/docs` | `/docs` 配下 |
-| `https://example.com/`、`https://example.com/index.html` | ホスト全体 |
+| `https://example.com/docs/intro` | Under `/docs` (including sibling pages in the same directory) |
+| `https://example.com/docs/` | Under `/docs` |
+| `https://example.com/docs` | Under `/docs` |
+| `https://example.com/`, `https://example.com/index.html` | Entire host |
 
-範囲は次のオプションで変更できます。
+You can customize the scope with:
 
-- `--include`：既定の範囲の代わりに、指定したパターンに一致する URL を範囲にします。
-- `--exclude`：範囲のうち、指定したパターンに一致する URL を除きます。
-- `--allow-all-paths`：ホスト全体を範囲にします。
+- `--include`: Replaces the default scope with URLs matching the given pattern(s).
+- `--exclude`: Skips URLs matching the given pattern(s).
+- `--allow-all-paths`: Crawls any path on the seed host.
 
-リダイレクトの結果として範囲の外に出たページは保存せず、終了時に一覧を表示します。
+Pages that end up outside the scope after a redirect are not saved and are listed when the crawl finishes.
 
-### パターンの書き方
+### Pattern Syntax
 
-`--include` と `--exclude` には、次の5種類のパターンを指定できます。
+`--include` and `--exclude` accept five pattern styles:
 
-| 書き方 | 例 | 一致する URL |
+| Style | Example | Matches |
 | --- | --- | --- |
-| URL のグロブ | `https://example.com/docs/**` | `/docs` 自体とその配下すべて |
-| ホスト相対のグロブ（`/` で始まる） | `/docs/*` | 任意のホストの `/docs` 直下 |
-| 相対グロブ | `api/**`、`*.pdf` | パスの途中に `api/` というディレクトリを持つ URL、`.pdf` で終わる URL |
-| 部分文字列（`*` も `?` も含まない） | `changelog` | `changelog` を含む URL |
-| 正規表現（`^` で始まるか `$` で終わる） | `^https://example\.com/v\d+/` | 正規表現に一致する URL |
+| Full URL glob | `https://example.com/docs/**` | `/docs` itself and everything under it |
+| Host-relative glob (starts with `/`) | `/docs/*` | Direct children of `/docs` on any host |
+| Relative glob | `api/**`, `*.pdf` | URLs with an `api/` path segment, or URLs ending in `.pdf` |
+| Substring (no `*` or `?`) | `changelog` | Any URL containing `changelog` |
+| Regular expression (starts with `^` or ends with `$`) | `^https://example\.com/v\d+/` | URLs matching the regex |
 
-グロブの `*` はパスの1階層の中だけに、`**` は複数の階層に一致します。末尾の `/**` はそのディレクトリ自体にも一致し、途中の `/**/` は階層が0個の場合にも一致します。
+In globs, `*` matches within a single path segment and `**` crosses multiple segments. A trailing `/**` also matches the directory itself, and an intermediate `/**/` matches zero or more directories.
 
-旧バージョンや他言語のディレクトリが範囲に含まれてしまう場合は、`--exclude` で除外できます。
+You can exclude legacy versions or other language directories with `--exclude`:
 
 ```bash
-# 旧バージョン（2.x、3.0.1、next など）を除外
-web2md crawl https://docusaurus.io/docs \
+# Exclude legacy versions (2.x, 3.0.1, next, etc.)
+crwl2md crawl https://docusaurus.io/docs \
   --exclude '^https://docusaurus\.io/docs/(next|\d[\d.x]*)(/|$)' \
   -o ./output/docusaurus
 
-# 英語以外の言語ディレクトリを除外
-web2md crawl https://example.com/docs/ \
+# Exclude non-English language directories
+crwl2md crawl https://example.com/docs/ \
   --exclude '/docs/fr/**' \
   --exclude '/docs/de/**' \
   -o ./output/docs
 ```
 
-## 出力の構成
+## Output Layout
 
 ```text
 output/
-├── index.md              # ルートの目次
-├── overview.md           # 範囲の最上位の URL 自体のページ（配下にページがある場合）
+├── index.md              # Root table of contents
+├── overview.md           # Top-level scope URL itself (when descendant pages exist)
 ├── intro.md
 └── commands/
-    ├── index.md          # commands/ の目次
-    ├── overview.md       # /commands 自体のページ（配下にページがある場合）
+    ├── index.md          # Table of contents for commands/
+    ├── overview.md       # /commands itself (when descendant pages exist)
     └── create.md
 ```
 
-- 全ページに共通するパスの接頭辞は取り除きます。`/docs/intro` と `/docs/commands/create` をクロールすると、`intro.md` と `commands/create.md` になります。
-- 配下にページを持つ URL は、そのディレクトリの `overview.md` になります（`/commands` と `/commands/create` があれば、前者は `commands/overview.md`）。`index.md` は生成する目次のために使います。
-- URL のパーセントエンコードはデコードします（`/docs/%E3%81%AF...` は `はじめに.md`）。ファイル名に使えない文字は `_` に置き換えます。
-- 出力先が重なる場合は、後から処理したページに `-2`、`-3` の連番を付けます。クエリ文字列だけが異なるページには、クエリのハッシュ値を付けます。
-- クロールしたページへのリンクは相対パスの `.md` に、それ以外の相対リンクと画像は絶対 URL に書き換えます。
-- 目次の並び順は、起点ページのサイドバーにあるリンクの順序に従います。サイドバーにないページはパスの順に並べます。
+- Common path prefixes shared across all crawled pages are stripped. Crawling `/docs/intro` and `/docs/commands/create` produces `intro.md` and `commands/create.md`.
+- A URL that has descendant pages is saved as `overview.md` in its directory (for example, `/commands` becomes `commands/overview.md` when `/commands/create` also exists). `index.md` is reserved for generated tables of contents.
+- Percent-encoded URL segments are decoded into readable filenames, and characters invalid in filenames are replaced with `_`.
+- Colliding output paths receive `-2`, `-3`, ... suffixes. URLs differing only in query parameters receive a short query hash suffix.
+- Links to crawled pages are rewritten to relative `.md` paths; all other relative links and images are rewritten to absolute URLs.
+- Entries in `index.md` follow the link order from the seed page's sidebar navigation; pages absent from the sidebar are sorted by path.
 
-## 失敗と除外の報告
+## Failed and Skipped Pages
 
-取得に失敗したページ（HTTP 400 番台・500 番台の応答を含む）は保存せず、終了時に URL と理由を標準エラー出力に表示します。Python API では `CrawlSummary.failed_pages` と `CrawlSummary.skipped_urls` で取得できます。失敗したページがあっても、1ページ以上を保存できれば終了コードは 0 です。
+Pages that fail to fetch (including HTTP 4xx/5xx responses) are not saved; their URLs and reasons are printed to stderr at the end of the run. Through the Python API, they are available on `CrawlSummary.failed_pages` and `CrawlSummary.skipped_urls`. As long as at least one page is saved, the CLI exits with status `0`.
 
-## 注意と既知の制限
+## Notes and Known Limitations
 
-- 既定では robots.txt を確認しません。公開サイトをクロールする場合は、サイトの利用規約を確認し、必要に応じて `--respect-robots` を指定してください。
-- 既定では、最大5ページを同時に取得し、取得のまとまりごとに 0.1〜0.4 秒待ちます。失敗の一覧に `HTTP 429` が出る場合は、`--delay 2 --concurrency 1` のように間隔を空けて再実行してください。429 または 503 を受け取ると、以降の待ち時間は自動的に延びますが、拒否されたページを待ってから取り直すことはしません。
-- 起点 URL が別のホストやディレクトリへリダイレクトされる場合、範囲はリダイレクト前の URL から決まるため、起点ページしか取得できません。このときは終了時にリダイレクト先の URL を警告として表示するので、その URL を起点に指定して再実行してください。
-- インライン SVG で描かれた図は出力されません。
-- 出力先にファイルが既に存在する場合は上書きを防ぐため終了します。既存の出力先へ再クロールするときは `--force` を指定してください。なお、`--force` を指定しても前回のクロールで作られ今回は作られなかったファイルは削除しません。
+- `robots.txt` is not checked by default. Before crawling a public site, review its terms of service and pass `--respect-robots` when appropriate.
+- By default, up to 5 pages are fetched concurrently with a 0.1–0.4 second wait before each batch. If `HTTP 429` appears in the failed pages list, re-run with slower pacing such as `--delay 2 --concurrency 1`. On HTTP 429 or 503, subsequent delays automatically increase, but rejected pages are not retried after waiting.
+- If the seed URL redirects to a different host or directory outside the initial scope, only the seed page is fetched. A warning displays the redirected URL so you can re-run using that URL as the seed.
+- Inline `<svg>` graphics are omitted from the Markdown output.
+- If the output directory already contains files, `crawl` exits to avoid accidental overwrites. Pass `--force` to write into a non-empty directory. Note that `--force` does not remove stale files left over from previous crawls.
 
-## ライセンス
+## License
 
-MIT License（[LICENSE](LICENSE)）
+MIT License ([LICENSE](https://github.com/shiguruikai/crwl2md/blob/HEAD/LICENSE))
 
-## 謝辞
+## Acknowledgments
 
 This product includes software developed by UncleCode (<https://x.com/unclecode>) as part of the Crawl4AI project (<https://github.com/unclecode/crawl4ai>).

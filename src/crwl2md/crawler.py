@@ -22,13 +22,13 @@ if TYPE_CHECKING:
     from crawl4ai import BrowserConfig, CrawlResult, FilterChain
     from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 
-from web2md.extractors import (
+from crwl2md.extractors import (
     extract_base_url,
     extract_markdown,
     extract_page_metadata,
     extract_sidebar_links,
 )
-from web2md.site_builder import (
+from crwl2md.site_builder import (
     FRONTMATTER_FIELDS,
     CrawledPageDoc,
     FrontmatterField,
@@ -185,7 +185,7 @@ async def _arun_with_browser(url: str, run_config: Any, *, verbose: bool = False
 
     # Crawl4AI prints a promotional banner unless told otherwise; an explicit user setting still wins.
     os.environ.setdefault("CRAWL4AI_NO_CLOUD_NOTICE", "1")
-    # text_mode skips image requests since web2md only extracts HTML and keeps image URLs.
+    # text_mode skips image requests since crwl2md only extracts HTML and keeps image URLs.
     browser_config = BrowserConfig(
         headless=True,
         text_mode=True,
@@ -200,12 +200,12 @@ async def _arun_with_browser(url: str, run_config: Any, *, verbose: bool = False
         if "Executable doesn't exist" in msg:
             raise BrowserNotInstalledError(
                 "The headless browser is not installed, or it does not match the installed Playwright version. "
-                "Run `web2md setup` (or call `web2md.install_browser()`) to download it."
+                "Run `crwl2md setup` (or call `crwl2md.install_browser()`) to download it."
             ) from exc
         if "Host system is missing dependencies" in msg or "error while loading shared libraries" in msg:
             raise BrowserNotInstalledError(
                 "System libraries required by the headless browser are missing. "
-                "Run `web2md setup --with-deps` (or call `web2md.install_browser(with_deps=True)`) to install them."
+                "Run `crwl2md setup --with-deps` (or call `crwl2md.install_browser(with_deps=True)`) to install them."
             ) from exc
         raise
 

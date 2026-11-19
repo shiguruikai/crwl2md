@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from web2md.markdown_code import iter_lines_with_code_flag, sub_outside_code_spans
+from crwl2md.markdown_code import iter_lines_with_code_flag, sub_outside_code_spans
 
 _LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 

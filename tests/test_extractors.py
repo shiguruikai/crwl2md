@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from web2md.extractors import (
+from crwl2md.extractors import (
     extract_markdown,
     extract_page_metadata,
     extract_sidebar_links,
@@ -38,8 +38,8 @@ SAMPLE_DOCUSAURUS_HTML = """
         <p>Install the CLI and run your first <strong>project</strong>.</p>
         <h2>Installation<a class="hash-link" href="#installation">\u200b</a></h2>
         <div class="language-bash">
-          <pre><code class="language-bash">uv add web2md
-uv run web2md --help</code></pre>
+          <pre><code class="language-bash">uv add crwl2md
+uv run crwl2md --help</code></pre>
           <button type="button">Copy</button>
         </div>
         <table>
@@ -70,7 +70,7 @@ def test_extract_markdown_removes_page_chrome_and_keeps_content():
 
     assert "# Getting Started" in md
     assert "Install the CLI and run your first **project**." in md
-    assert "```bash\nuv add web2md\nuv run web2md --help\n```" in md
+    assert "```bash\nuv add crwl2md\nuv run crwl2md --help\n```" in md
     assert "| Option | Default |" in md
     assert "Breadcrumbs" not in md
     assert "Edit this page" not in md

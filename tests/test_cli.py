@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-import web2md
-from web2md import CrawlConfig, CrawlSummary, FailedPage
-from web2md.cli import main
+import crwl2md
+from crwl2md import CrawlConfig, CrawlSummary, FailedPage
+from crwl2md.cli import main
 
 _SAMPLE_HTML = "<html><head><title>Local</title></head><body><main><h1>Hello</h1><p>World</p></main></body></html>"
 
@@ -92,7 +92,7 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
             files=["a.md", "index.md", "overview.md"],
         )
 
-    monkeypatch.setattr("web2md.cli.crawl_site", fake_crawl_site)
+    monkeypatch.setattr("crwl2md.cli.crawl_site", fake_crawl_site)
 
     exit_code = main(
         [
@@ -175,7 +175,7 @@ def test_cli_crawl_warns_when_in_scope_links_were_not_fetched(
             **summary_kwargs,  # type: ignore[arg-type]
         )
 
-    monkeypatch.setattr("web2md.cli.crawl_site", fake_crawl_site)
+    monkeypatch.setattr("crwl2md.cli.crawl_site", fake_crawl_site)
 
     exit_code = main(["crawl", "https://example.com/docs/", "-o", str(tmp_path), *extra_args])
 
@@ -205,7 +205,7 @@ def test_cli_crawl_prints_top_level_directory_breakdown(
             ],
         )
 
-    monkeypatch.setattr("web2md.cli.crawl_site", fake_crawl_site)
+    monkeypatch.setattr("crwl2md.cli.crawl_site", fake_crawl_site)
 
     exit_code = main(["crawl", "https://example.com/docs/", "-o", str(tmp_path)])
 
@@ -240,7 +240,7 @@ def test_cli_setup_downloads_browser(
     expected_with_deps: bool,
 ):
     calls: list[bool] = []
-    monkeypatch.setattr("web2md.cli.install_browser", lambda *, with_deps=False: calls.append(with_deps))
+    monkeypatch.setattr("crwl2md.cli.install_browser", lambda *, with_deps=False: calls.append(with_deps))
 
     exit_code = main(argv)
 
@@ -253,7 +253,7 @@ def test_cli_setup_reports_failed_download(monkeypatch: pytest.MonkeyPatch, caps
     def fail(*, with_deps: bool = False) -> None:
         raise RuntimeError("Browser download failed (playwright exited with code 1).")
 
-    monkeypatch.setattr("web2md.cli.install_browser", fail)
+    monkeypatch.setattr("crwl2md.cli.install_browser", fail)
 
     exit_code = main(["setup"])
 
@@ -266,12 +266,12 @@ def test_cli_version_prints_package_version(capsys: pytest.CaptureFixture[str]):
         main(["--version"])
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out.strip() == f"web2md {web2md.__version__}"
+    assert capsys.readouterr().out.strip() == f"crwl2md {crwl2md.__version__}"
 
 
 def test_importing_package_and_cli_defers_heavy_crawler_dependencies():
     code = (
-        "import sys, web2md, web2md.cli; "
+        "import sys, crwl2md, crwl2md.cli; "
         "loaded = [m for m in ('crawl4ai', 'playwright') if m in sys.modules]; "
         "assert not loaded, f'eagerly imported: {loaded}'"
     )

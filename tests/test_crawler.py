@@ -11,7 +11,7 @@ from crawl4ai import CrawlResult
 from crawl4ai.models import CrawlResultContainer
 from playwright.async_api import Error as PlaywrightError
 
-from web2md import (
+from crwl2md import (
     BrowserNotInstalledError,
     CrawlConfig,
     convert_single,
@@ -21,7 +21,7 @@ from web2md import (
     extract_markdown,
     install_browser,
 )
-from web2md.crawler import (
+from crwl2md.crawler import (
     _link_following_bfs_strategy_cls,
     _resolve_output_path,
     build_filter_chain,
@@ -250,7 +250,7 @@ async def test_crawl_site_saves_other_pages_when_one_page_fails_conversion(
             raise ValueError("malformed DOM")
         return extract_markdown(html, url=url)
 
-    monkeypatch.setattr("web2md.crawler.extract_markdown", flaky_extract)
+    monkeypatch.setattr("crwl2md.crawler.extract_markdown", flaky_extract)
     fake_results = [
         CrawlResult(
             url="https://example.com/docs/",
@@ -280,7 +280,7 @@ async def test_crawl_site_raises_when_every_page_fails_conversion(tmp_path: Path
     def always_fail(html: str, url: str = "") -> str:
         raise ValueError("broken html")
 
-    monkeypatch.setattr("web2md.crawler.extract_markdown", always_fail)
+    monkeypatch.setattr("crwl2md.crawler.extract_markdown", always_fail)
     fake_results = [CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)]
     config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
 
@@ -525,7 +525,7 @@ async def test_crawl_site_disables_image_loading_in_browser_config(tmp_path: Pat
         captured.append(config)
         return FakeBrowserCrawler(results)
 
-    monkeypatch.setattr("web2md.crawler._create_browser_crawler", fake_crawler_factory)
+    monkeypatch.setattr("crwl2md.crawler._create_browser_crawler", fake_crawler_factory)
     monkeypatch.setenv("CRAWL4AI_NO_CLOUD_NOTICE", "1")
     config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
 
@@ -551,7 +551,7 @@ async def test_crawl_site_hides_crawl4ai_banner_unless_user_set_the_variable(
             return None
 
     results = [CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)]
-    monkeypatch.setattr("web2md.crawler._create_browser_crawler", lambda config: FakeBrowserCrawler(results))
+    monkeypatch.setattr("crwl2md.crawler._create_browser_crawler", lambda config: FakeBrowserCrawler(results))
     # setenv first so that monkeypatch restores the original state even though crawl_site sets the variable.
     monkeypatch.setenv("CRAWL4AI_NO_CLOUD_NOTICE", preset or "")
     if preset is None:
@@ -571,7 +571,7 @@ def _fail_browser_launch(monkeypatch: pytest.MonkeyPatch, message: str) -> None:
         async def __aexit__(self, *exc_info: object) -> None:
             return None
 
-    monkeypatch.setattr("web2md.crawler._create_browser_crawler", lambda config: UnlaunchableCrawler())
+    monkeypatch.setattr("crwl2md.crawler._create_browser_crawler", lambda config: UnlaunchableCrawler())
     monkeypatch.setenv("CRAWL4AI_NO_CLOUD_NOTICE", "1")
 
 
@@ -579,7 +579,7 @@ async def test_crawl_site_explains_how_to_install_missing_browser(tmp_path: Path
     _fail_browser_launch(monkeypatch, "BrowserType.launch: Executable doesn't exist at C:\\ms-playwright\\chrome.exe")
     config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
 
-    with pytest.raises(BrowserNotInstalledError, match="web2md setup"):
+    with pytest.raises(BrowserNotInstalledError, match="crwl2md setup"):
         await crawl_site(config)
 
 
@@ -596,7 +596,7 @@ async def test_crawl_site_explains_how_to_install_missing_system_libraries(
     _fail_browser_launch(monkeypatch, error_message)
     config = CrawlConfig(url="https://example.com/docs/", output_dir=tmp_path / "out")
 
-    with pytest.raises(BrowserNotInstalledError, match="web2md setup --with-deps"):
+    with pytest.raises(BrowserNotInstalledError, match="crwl2md setup --with-deps"):
         await crawl_site(config)
 
 

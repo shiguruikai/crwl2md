@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from web2md.site_builder import (
+from crwl2md.site_builder import (
     FRONTMATTER_FIELDS,
     CrawledPageDoc,
     build_link_lookup,

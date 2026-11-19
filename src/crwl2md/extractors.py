@@ -10,7 +10,7 @@ from bs4.element import Comment, NavigableString, PageElement
 from markdownify import MarkdownConverter
 from pydantic import BaseModel
 
-from web2md.markdown_code import iter_lines_with_code_flag
+from crwl2md.markdown_code import iter_lines_with_code_flag
 
 # Ordered from framework-specific content containers to generic HTML/ARIA landmarks:
 # - .theme-doc-markdown: Docusaurus article body (excludes breadcrumbs, TOC, and pagination inside <main>).

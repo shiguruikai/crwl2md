@@ -1,6 +1,6 @@
 # 手法の比較検証結果
 
-`web2md` の抽出手法および目次（`index.md`）生成手法について、ローカルフィクスチャと実サイト（`https://docs.elgato.com/streamdeck/cli/**`）で比較検証した記録。
+`crwl2md` の抽出手法および目次（`index.md`）生成手法について、ローカルフィクスチャと実サイト（`https://docs.elgato.com/streamdeck/cli/**`）で比較検証した記録。
 
 ## 1. 実サイトでの比較検証（Elgato Stream Deck CLI ドキュメント）
 
