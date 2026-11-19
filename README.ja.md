@@ -97,7 +97,7 @@ options:
 ### `crwl2md crawl --help`
 
 ```text
-usage: crwl2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--force] [--header NAME:VALUE] [--storage-state PATH] [--user-data-dir PATH] [--proxy PROXY] [--stealth] [--wait-for CONDITION] [--scan-full-page] [--flatten-shadow-dom] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [-v] url
+usage: crwl2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--force] [--header NAME:VALUE] [--storage-state PATH] [--user-data-dir PATH] [--proxy PROXY] [--stealth] [--wait-for CONDITION] [--scan-full-page] [--flatten-shadow-dom] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [--no-progress] [-v] url
 
 positional arguments:
   url                   Seed URL to start crawling from.
@@ -125,6 +125,7 @@ options:
   --frontmatter         Prepend YAML frontmatter to output Markdown.
   --frontmatter-fields FRONTMATTER_FIELDS
                         Comma-separated YAML frontmatter fields (title,description,source,timestamp). Enables frontmatter when set.
+  --no-progress         Suppress per-page progress output during crawling.
   -v, --verbose         Enable verbose crawler logging.
 ```
 

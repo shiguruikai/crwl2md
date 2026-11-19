@@ -189,6 +189,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_browser_options(crawl_parser)
     _add_frontmatter_options(crawl_parser)
+    crawl_parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Suppress per-page progress output during crawling.",
+    )
     crawl_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose crawler logging.")
 
     setup_parser = subparsers.add_parser(
@@ -316,16 +321,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 verbose=args.verbose,
             )
             print(f"Crawl scope: {describe_crawl_scope(config)}", file=sys.stderr)
-            summary = asyncio.run(
-                crawl_site(
-                    config,
-                    on_progress=lambda result, count: print(
-                        _format_progress_line(result, count, config.max_pages),
-                        file=sys.stderr,
-                        flush=True,
-                    ),
+            on_progress = (
+                None
+                if args.no_progress
+                else lambda result, count: print(
+                    _format_progress_line(result, count, config.max_pages),
+                    file=sys.stderr,
+                    flush=True,
                 )
             )
+            summary = asyncio.run(crawl_site(config, on_progress=on_progress))
             print(
                 f"Crawled {summary.page_count} pages and generated {summary.toc_count} index files in {summary.output_dir}"
             )

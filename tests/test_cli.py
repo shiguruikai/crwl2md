@@ -145,6 +145,32 @@ def test_cli_crawl_prints_summary_with_failed_and_skipped_pages(
     assert "Warning: the seed URL was redirected to https://www.example.com/docs/" in captured.err
 
 
+def test_cli_crawl_no_progress_disables_progress_callback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    received_callbacks: list[object] = []
+
+    async def fake_crawl_site(config: CrawlConfig, *, on_progress: object = None) -> CrawlSummary:
+        received_callbacks.append(on_progress)
+        return CrawlSummary(
+            seed_url=config.url,
+            output_dir=config.output_dir,
+            page_count=1,
+            toc_count=1,
+            failed_pages=[],
+            skipped_urls=[],
+            files=["index.md", "overview.md"],
+        )
+
+    monkeypatch.setattr("crwl2md.cli.crawl_site", fake_crawl_site)
+
+    exit_code = main(["crawl", "https://example.com/docs/", "-o", str(tmp_path), "--no-progress"])
+
+    assert exit_code == 0
+    assert received_callbacks == [None]
+    assert "[1/" not in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("bad_url", ["docs.example.com/intro", "ftp://example.com/docs", "https://"])
 def test_cli_crawl_rejects_url_without_http_scheme(tmp_path: Path, bad_url: str, capsys: pytest.CaptureFixture[str]):
     exit_code = main(["crawl", bad_url, "-o", str(tmp_path)])
