@@ -386,7 +386,15 @@ def extract_base_url(html: str, page_url: str = "") -> str:
 
 
 def _select_main_container(soup: BeautifulSoup) -> Tag:
-    return next((el for selector in _MAIN_SELECTORS if (el := soup.select_one(selector)) is not None), soup)
+    for selector in _MAIN_SELECTORS:
+        if selector == "article":
+            top_articles = [el for el in soup.select("article") if el.find_parent("article") is None]
+            if len(top_articles) == 1:
+                return top_articles[0]
+            continue
+        if (el := soup.select_one(selector)) is not None:
+            return el
+    return soup
 
 
 def extract_markdown(html: str, url: str = "") -> str:

@@ -572,6 +572,23 @@ def test_extract_markdown_preserves_sub_and_sup_tags_while_metadata_strips_them(
     assert meta.description == "Compute x2."
 
 
+def test_extract_markdown_keeps_all_articles_when_multiple_exist_without_main():
+    html = """
+    <html><body>
+      <header><nav><a href="/">Home</a></nav></header>
+      <article><h2>First</h2><p>First body.</p></article>
+      <article><h2>Second</h2><p>Second body.</p></article>
+      <footer>Footer</footer>
+    </body></html>
+    """
+
+    md = extract_markdown(html)
+
+    assert "## First\n\nFirst body." in md
+    assert "## Second\n\nSecond body." in md
+    assert "Footer" not in md
+
+
 def test_extract_page_metadata_ignores_site_name_heading_outside_main_content():
     html = """
     <html><head><title>Real Page Title | Site</title></head><body>
