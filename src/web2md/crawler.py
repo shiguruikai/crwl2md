@@ -278,18 +278,23 @@ def describe_crawl_scope(config: CrawlConfig) -> str:
     return scope
 
 
-def build_filter_chain(config: CrawlConfig) -> FilterChain:
-    """Build a Crawl4AI `FilterChain` enforcing domain, asset, and path-scope rules."""
-    parsed = urlparse(config.url)
-    filters: list[Any] = []
-
+def _allowed_domains(config: CrawlConfig) -> list[str]:
     # Crawl4AI's DomainFilter compares port-less hostnames, so passing netloc would reject every "host:port" URL.
+    parsed = urlparse(config.url)
     allowed_domains: list[str] = [parsed.hostname] if parsed.hostname else []
     for pat in config.include_patterns:
         if "://" in pat:
             pat_host = urlparse(pat.replace("*", "x")).hostname
             if pat_host and "*" not in pat.split("://", 1)[1].split("/", 1)[0] and pat_host not in allowed_domains:
                 allowed_domains.append(pat_host)
+    return allowed_domains
+
+
+def build_filter_chain(config: CrawlConfig) -> FilterChain:
+    """Build a Crawl4AI `FilterChain` enforcing domain, asset, and path-scope rules."""
+    filters: list[Any] = []
+
+    allowed_domains = _allowed_domains(config)
     if allowed_domains:
         filters.append(DomainFilter(allowed_domains=allowed_domains))
 
@@ -390,13 +395,14 @@ async def crawl_site(config: CrawlConfig, *, crawler: Any | None = None) -> Craw
     `crawler` replaces the Crawl4AI browser crawler and exists for tests.
     """
     filter_chain = build_filter_chain(config)
+    include_external = len(_allowed_domains(config)) > 1
     run_config = CrawlerRunConfig(
         stream=False,
         deep_crawl_strategy=_LinkFollowingBFSStrategy(
             max_depth=config.max_depth,
             max_pages=config.max_pages,
             filter_chain=filter_chain,
-            include_external=False,
+            include_external=include_external,
         ),
         scraping_strategy=LXMLWebScrapingStrategy(),
         max_retries=1,

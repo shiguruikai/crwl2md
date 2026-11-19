@@ -343,6 +343,29 @@ async def test_bfs_strategy_follows_links_on_hosts_without_a_dot(tmp_path: Path)
     assert (in_scope, out_of_scope, not_http) == (True, False, False)
 
 
+@pytest.mark.parametrize(
+    ("include_patterns", "expected"),
+    [
+        ([], False),
+        (["https://example.com/api/**"], False),
+        (["https://api.example.com/v1/**"], True),
+    ],
+)
+async def test_crawl_site_enables_external_links_only_when_include_adds_another_host(
+    tmp_path: Path, include_patterns: list[str], expected: bool
+):
+    fake_crawler = _FakeCrawler([CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)])
+    config = CrawlConfig(
+        url="https://example.com/docs/",
+        output_dir=tmp_path / "out",
+        include_patterns=include_patterns,
+    )
+
+    await crawl_site(config, crawler=fake_crawler)
+
+    assert fake_crawler.run_config.deep_crawl_strategy.include_external is expected
+
+
 @pytest.mark.parametrize("respect_robots", [False, True])
 async def test_crawl_site_checks_robots_txt_only_on_request(tmp_path: Path, respect_robots: bool):
     fake_crawler = _FakeCrawler([CrawlResult(url="https://example.com/docs/", html=_page("Docs"), success=True)])
