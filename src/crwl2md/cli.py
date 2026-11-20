@@ -147,6 +147,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    setup_parser = subparsers.add_parser(
+        "setup",
+        help="Download the Chromium browser used for fetching URLs. Run once after installing or upgrading.",
+    )
+    setup_parser.add_argument(
+        "--with-deps",
+        action="store_true",
+        help="Also install OS-level libraries required by Chromium on Linux (may prompt for sudo).",
+    )
+
     convert_parser = subparsers.add_parser(
         "convert",
         help="Convert a single URL or local HTML file to Markdown.",
@@ -227,16 +237,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Suppress per-page progress output during crawling.",
     )
     crawl_parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose crawler logging.")
-
-    setup_parser = subparsers.add_parser(
-        "setup",
-        help="Download the Chromium browser used for fetching URLs. Run once after installing or upgrading.",
-    )
-    setup_parser.add_argument(
-        "--with-deps",
-        action="store_true",
-        help="Also install OS-level libraries required by Chromium on Linux (may prompt for sudo).",
-    )
 
     return parser
 

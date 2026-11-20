@@ -52,116 +52,120 @@ task setup
 
 If you have not installed the tool globally, invoke it with `uv run crwl2md`.
 
-### `crwl2md --help`
+### Commands
 
-```text
-usage: crwl2md [-h] [--version] {convert,crawl,setup} ...
-
-Convert HTML pages or crawl documentation sites into Markdown with table of contents.
-
-positional arguments:
-  {convert,crawl,setup}
-    convert             Convert a single URL or local HTML file to Markdown.
-    crawl               Crawl a documentation website and generate Markdown files with index.md TOCs.
-    setup               Download the Chromium browser used for fetching URLs. Run once after installing or upgrading.
-
-options:
-  -h, --help            show this help message and exit
-  --version             show program's version number and exit
+```bash
+crwl2md [GLOBAL OPTIONS] <COMMAND> [ARGS / OPTIONS]
 ```
 
-### `crwl2md convert --help`
+| Command | Description |
+| --- | --- |
+| `setup` | Download the Chromium browser used for fetching URLs. |
+| `convert` | Convert a single URL, `file://` URI, or local HTML file to Markdown. |
+| `crawl` | Crawl a website and generate Markdown files with hierarchical `index.md` tables of contents. |
 
-```text
-usage: crwl2md convert [-h] [-o OUTPUT] [--header NAME:VALUE] [--storage-state PATH] [--user-data-dir PATH] [--proxy PROXY] [--stealth] [--headed] [--wait-for CONDITION] [--wait-for-timeout SECONDS] [--scan-full-page] [--flatten-shadow-dom] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] source
-
-positional arguments:
-  source                Source URL, file:// URI, or local HTML file path.
-
-options:
-  -h, --help            show this help message and exit
-  -o, --output OUTPUT   Output Markdown file path (default: stdout).
-  --header NAME:VALUE   Extra HTTP header sent with browser requests ('Name: Value', repeatable).
-  --storage-state PATH  Playwright storage_state.json file (cookies and localStorage) for authenticated sessions.
-  --user-data-dir PATH  Persistent Chromium profile directory to reuse logged-in sessions.
-  --proxy PROXY         Proxy server ('http://host:port', 'socks5://host:port', 'http://user:pass@host:port', or 'host:port:user:pass').
-  --stealth             Enable stealth mode and navigator overrides to reduce anti-bot blocking.
-  --headed              Run Chromium in a visible window instead of headless mode (useful with --stealth or debugging).
-  --wait-for CONDITION  CSS selector or 'js:() => ...' condition to wait for before extracting HTML.
-  --wait-for-timeout SECONDS
-                        Seconds to wait for --wait-for before timing out (default: 15 when --wait-for is set, 5 otherwise).
-  --scan-full-page      Scroll from top to bottom before extracting HTML so lazy-loaded content renders.
-  --flatten-shadow-dom  Inline open and closed Shadow DOM trees into the HTML before conversion.
-  --frontmatter         Prepend YAML frontmatter to output Markdown.
-  --frontmatter-fields FRONTMATTER_FIELDS
-                        Comma-separated YAML frontmatter fields (title,description,source,timestamp). Enables frontmatter when set.
-```
-
-### `crwl2md crawl --help`
-
-```text
-usage: crwl2md crawl [-h] -o OUTPUT [--max-depth N] [--max-pages N] [--include INCLUDE] [--exclude EXCLUDE] [--allow-all-paths] [--delay SECONDS] [--concurrency N] [--respect-robots] [--force] [--header NAME:VALUE] [--storage-state PATH] [--user-data-dir PATH] [--proxy PROXY] [--stealth] [--headed] [--wait-for CONDITION] [--wait-for-timeout SECONDS] [--scan-full-page] [--flatten-shadow-dom] [--frontmatter] [--frontmatter-fields FRONTMATTER_FIELDS] [--no-progress] [-v] url
-
-positional arguments:
-  url                   Seed URL to start crawling from.
-
-options:
-  -h, --help            show this help message and exit
-  -o, --output OUTPUT   Output directory for Markdown files and index.md.
-  --max-depth N         Maximum number of link hops from the seed page (0 = seed page only, default: unlimited).
-  --max-pages N         Maximum number of pages (default: 100).
-  --include INCLUDE     URL pattern to crawl: glob or regex, repeatable. Replaces the default seed-directory scope.
-  --exclude EXCLUDE     URL pattern to skip: glob or regex, repeatable.
-  --allow-all-paths     Allow crawling any path on the seed domain instead of restricting to the seed URL's directory.
-  --delay SECONDS       Seconds to wait before each batch of concurrent requests (default: 0.1).
-  --concurrency N       Maximum number of pages fetched at the same time (default: 5).
-  --respect-robots      Skip pages that the site's robots.txt disallows.
-  --force               Allow writing into a non-empty output directory and overwriting existing files.
-  --header NAME:VALUE   Extra HTTP header sent with browser requests ('Name: Value', repeatable).
-  --storage-state PATH  Playwright storage_state.json file (cookies and localStorage) for authenticated sessions.
-  --user-data-dir PATH  Persistent Chromium profile directory to reuse logged-in sessions.
-  --proxy PROXY         Proxy server ('http://host:port', 'socks5://host:port', 'http://user:pass@host:port', or 'host:port:user:pass').
-  --stealth             Enable stealth mode and navigator overrides to reduce anti-bot blocking.
-  --headed              Run Chromium in a visible window instead of headless mode (useful with --stealth or debugging).
-  --wait-for CONDITION  CSS selector or 'js:() => ...' condition to wait for before extracting HTML.
-  --wait-for-timeout SECONDS
-                        Seconds to wait for --wait-for before timing out (default: 15 when --wait-for is set, 5 otherwise).
-  --scan-full-page      Scroll from top to bottom before extracting HTML so lazy-loaded content renders.
-  --flatten-shadow-dom  Inline open and closed Shadow DOM trees into the HTML before conversion.
-  --frontmatter         Prepend YAML frontmatter to output Markdown.
-  --frontmatter-fields FRONTMATTER_FIELDS
-                        Comma-separated YAML frontmatter fields (title,description,source,timestamp). Enables frontmatter when set.
-  --no-progress         Suppress per-page progress output during crawling.
-  -v, --verbose         Enable verbose crawler logging.
-```
-
-### `crwl2md setup --help`
-
-```text
-usage: crwl2md setup [-h] [--with-deps]
-
-options:
-  -h, --help   show this help message and exit
-  --with-deps  Also install OS-level libraries required by Chromium on Linux (may prompt for sudo).
-```
+| Global option | Description |
+| --- | --- |
+| `-h`, `--help` | Show help and exit (also available on every subcommand). |
+| `--version` | Show the program version and exit. |
 
 ### Examples
 
 ```bash
 # Convert a single page (URL or local HTML file)
 crwl2md convert https://docs.elgato.com/streamdeck/cli/intro -o intro.md
+crwl2md convert ./page.html
 
 # Crawl a documentation site and generate hierarchical index.md TOCs
 crwl2md crawl https://docs.elgato.com/streamdeck/cli/intro \
+  -o ./output/streamdeck-cli \
   --include "https://docs.elgato.com/streamdeck/cli/**" \
-  --frontmatter-fields title,description,source,timestamp \
-  -o ./output/streamdeck-cli
+  --frontmatter-fields title,description,source,timestamp
 
 # Crawl a locally running documentation server
 crwl2md crawl http://localhost:3000/docs/ -o ./output/local-docs
 ```
 
-Python API example:
+### `crwl2md setup`
+
+Download the Chromium browser used for fetching URLs. Run once after installing or upgrading.
+
+```bash
+crwl2md setup [OPTIONS]
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--with-deps` | — | Also install OS-level libraries required by Chromium on Linux (may prompt for `sudo`). |
+
+### `crwl2md convert`
+
+Convert a single page into Markdown.
+
+```bash
+crwl2md convert <source> [OPTIONS]
+```
+
+| Argument / Option | Default | Description |
+| --- | --- | --- |
+| `<source>` | Required | Source URL, `file://` URI, or local HTML file path. |
+| `-o`, `--output <PATH>` | stdout | Output Markdown file path. |
+
+Also accepts all [Shared Options](#shared-options). Browser and fetching options apply when converting `http://` or `https://` URLs.
+
+### `crwl2md crawl`
+
+Crawl a documentation website and write link-rewritten Markdown files with hierarchical `index.md` tables of contents.
+
+```bash
+crwl2md crawl <url> -o <DIR> [OPTIONS]
+```
+
+| Argument / Option | Default | Description |
+| --- | --- | --- |
+| `<url>` | Required | Seed URL (`http://` or `https://`) to start crawling from. |
+| `-o`, `--output <DIR>` | Required | Output directory for Markdown files and `index.md`. |
+| `--max-depth <N>` | Unlimited | Maximum number of link hops from the seed page (`0` = seed page only). |
+| `--max-pages <N>` | `100` | Maximum number of pages to fetch (`>= 1`). |
+| `--include <PATTERN>` | — | URL pattern to crawl (glob or regex, repeatable). Replaces the default seed-directory scope. |
+| `--exclude <PATTERN>` | — | URL pattern to skip (glob or regex, repeatable). |
+| `--allow-all-paths` | — | Allow crawling any path on the seed host instead of restricting to the seed URL's directory. |
+| `--delay <SECONDS>` | `0.1` | Seconds to wait before each batch of concurrent requests (`>= 0`). |
+| `--concurrency <N>` | `5` | Maximum number of pages fetched at the same time (`>= 1`). |
+| `--respect-robots` | — | Skip pages disallowed by the site's `robots.txt`. |
+| `--force` | — | Allow writing into a non-empty output directory and overwriting existing files. |
+| `--no-progress` | — | Suppress per-page progress output during crawling. |
+| `-v`, `--verbose` | — | Enable verbose crawler logging. |
+
+Also accepts all [Shared Options](#shared-options). See [Crawl Scope](#crawl-scope) for details on scope rules and pattern syntax.
+
+### Shared Options
+
+These options are available for both `convert` and `crawl`.
+
+#### Browser and Fetching
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--header <NAME:VALUE>` | — | Extra HTTP header sent with browser requests (`Name: Value` format, repeatable). |
+| `--storage-state <PATH>` | — | Playwright `storage_state.json` file (cookies and `localStorage`) for authenticated sessions. Cannot be combined with `--user-data-dir`. |
+| `--user-data-dir <PATH>` | — | Persistent Chromium profile directory to reuse logged-in sessions. Cannot be combined with `--storage-state`. |
+| `--proxy <PROXY>` | — | Proxy server (`http://host:port`, `socks5://host:port`, `http://user:pass@host:port`, `host:port:user:pass`, etc.). |
+| `--stealth` | — | Enable stealth mode and navigator overrides to reduce anti-bot blocking. |
+| `--headed` | — | Run Chromium in a visible window instead of headless mode (useful with `--stealth` or debugging). |
+| `--wait-for <CONDITION>` | — | CSS selector or `js:() => ...` condition to wait for before extracting HTML. |
+| `--wait-for-timeout <SECONDS>` | `15` (with `--wait-for`) / `5` (otherwise) | Seconds to wait before HTML extraction times out (`> 0`). |
+| `--scan-full-page` | — | Scroll from top to bottom before extracting HTML so lazy-loaded content renders. |
+| `--flatten-shadow-dom` | — | Inline open and closed Shadow DOM trees into the HTML before conversion. |
+
+#### Frontmatter
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--frontmatter` | — | Prepend YAML frontmatter (`title`, `description`, `source`, `timestamp`) to output Markdown. |
+| `--frontmatter-fields <FIELDS>` | — | Comma-separated YAML frontmatter fields (`title`, `description`, `source`, `timestamp`). Enables frontmatter when set. |
+
+### Python API
 
 ```python
 from pathlib import Path
