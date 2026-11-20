@@ -761,7 +761,8 @@ def test_extract_markdown_converts_katex_and_embed_katex_to_latex():
           <annotation encoding="application/x-tex">a\\ne0</annotation>
         </semantics></math></span>
         <span aria-hidden="true" class="katex-html">a≠0</span>
-      </span></embed-katex> and unhydrated <embed-katex data-tex-source="x_1 + x_2"></embed-katex>.</p>
+      </span></embed-katex> and unhydrated <embed-katex data-tex-source="x_1 + x_2"></embed-katex> and SSR <embed-katex><eq class="zenn-katex">b_0</eq></embed-katex>.</p>
+      <embed-katex display-mode="1">\ny = mx + c\n</embed-katex>
       <p>Standard <span class="katex"><span class="katex-mathml"><math><semantics>
         <annotation encoding="application/x-tex">\\alpha_0</annotation>
       </semantics></math></span><span aria-hidden="true" class="katex-html">α0</span></span>.</p>
@@ -780,7 +781,8 @@ def test_extract_markdown_converts_katex_and_embed_katex_to_latex():
     md = extract_markdown(html)
 
     assert "$$\ne^{i\\theta} = \\cos\\theta + i\\sin\\theta\n$$" in md
-    assert "Inline $a\\ne0$ and unhydrated $x_1 + x_2$." in md
+    assert "Inline $a\\ne0$ and unhydrated $x_1 + x_2$ and SSR $b_0$." in md
+    assert "$$\ny = mx + c\n$$" in md
     assert "Standard $\\alpha_0$." in md
     assert "$$\n\\sum_{i=1}^n i\n$$" in md
     assert "| $a + b$ |" in md
@@ -834,3 +836,133 @@ def test_extract_markdown_preserves_details_and_summary_elements():
     assert "<details open>\n<summary>Code sample</summary>\n\n```rb\nputs 'ok'\n```\n\n</details>" in md
     assert "<details>\n\nNo summary body\n\n</details>" in md
     assert meta.description == "折りたたみの中身"
+
+
+def test_extract_markdown_handles_qiita_article_structure_notes_and_embeds():
+    html = """
+    <html><head><title>Qiita CLI Guide - Qiita</title></head><body>
+      <main>
+        <section class="left-actions">
+          <p role="tooltip">Share on X</p>
+          <dialog aria-modal="true"><p>Delete article</p></dialog>
+        </section>
+        <div class="p-items_main">
+          <article>
+            <div class="article-header">
+              <h1>Qiita CLI Guide</h1>
+              <ul><li><a href="/tags/qiita">Qiita</a></li></ul>
+            </div>
+            <section class="it-MdContent">
+              <div id="personal-public-article-body">
+                <h1>Commands</h1>
+                <div class="note info"><span class="fa fa-check-circle"></span><div><p>Info message.</p></div></div>
+                <div class="note warn"><span class="fa fa-exclamation-circle"></span><div><p>Warn message.</p></div></div>
+                <div class="note alert"><span class="fa fa-times-circle"></span><div><p>Alert message.</p></div></div>
+                <p><iframe src="https://qiita.com/embed-contents/link-card#id1" data-content="https%3A%2F%2Fqiita.com%2FQiita%2Fitems%2F12345"></iframe></p>
+                <iframe src="https://qiita.com/embed-contents/mermaid#id2" data-content='{"data":"graph TD;\\n A-->B;","key":"k"}'></iframe>
+              </div>
+            </section>
+            <div class="signup-cta"><p>Register as a new user</p></div>
+          </article>
+        </div>
+      </main>
+    </body></html>
+    """
+
+    md = extract_markdown(html, url="https://qiita.com/user/items/abc")
+    meta = extract_page_metadata(html, md)
+    meta_without_md = extract_page_metadata(html, "")
+
+    assert md.startswith("# Qiita CLI Guide\n\n# Commands")
+    assert meta.title == "Qiita CLI Guide"
+    assert meta_without_md.title == "Qiita CLI Guide"
+    assert "Share on X" not in md
+    assert "Delete article" not in md
+    assert "Register as a new user" not in md
+    assert "> Info message." in md
+    assert "> **Warning**\n>\n> Warn message." in md
+    assert "> **Alert**\n>\n> Alert message." in md
+    assert "[https://qiita.com/Qiita/items/12345](https://qiita.com/Qiita/items/12345)" in md
+    assert "```mermaid\ngraph TD;\n A-->B;\n```" in md
+
+
+def test_extract_markdown_handles_zenn_article_structure_messages_and_embeds():
+    html = """
+    <html><head><meta property="og:title" content="Zenn Markdown Guide"></head><body>
+      <article class="article-container">
+        <aside class="author-bar"><a href="/zenn">Zenn</a></aside>
+        <header class="article-header">
+          <div>👩‍💻</div>
+          <h1><span>Zenn Markdown Guide</span></h1>
+        </header>
+        <section class="article-content">
+          <div class="article-main">
+            <div class="topics"><a href="/topics/zenn">Zenn</a></div>
+            <div class="znc">
+              <p>Lead paragraph explaining Markdown syntax.</p>
+              <aside class="msg message"><span class="msg-symbol">!</span><div class="msg-content"><p>Normal note.</p></div></aside>
+              <aside class="msg alert"><span class="msg-symbol">!</span><div class="msg-content"><p>Danger alert.</p></div></aside>
+              <details>
+                <summary>Nested</summary>
+                <div class="details-content">
+                  <aside class="msg message"><span class="msg-symbol">!</span><div class="msg-content"><p>Inside details.</p></div></aside>
+                </div>
+              </details>
+              <p><span class="embed-block zenn-embedded zenn-embedded-card"><iframe data-content="https%3A%2F%2Fzenn.dev%2Fzenn%2Farticles%2Fdemo" src="https://embed.zenn.studio/card#1"></iframe></span><a href="https://zenn.dev/zenn/articles/demo" style="display: none">https://zenn.dev/zenn/articles/demo</a></p>
+              <p><span class="embed-block zenn-embedded zenn-embedded-card"><iframe data-content="https%3A%2F%2Fexample.com%2Fcard-only" src="https://embed.zenn.studio/card#2"></iframe></span></p>
+              <span class="embed-block zenn-embedded zenn-embedded-mermaid"><iframe data-content="graph%20LR%0A%20%20A%20--%3E%20B" src="https://embed.zenn.studio/mermaid#3"></iframe></span>
+              <span class="embed-block zenn-embedded zenn-embedded-html"><iframe data-content="%3Cdiv%3EHi%3C%2Fdiv%3E" src="https://embed.zenn.studio/html#4"></iframe></span>
+            </div>
+          </div>
+          <div id="discuss">
+            <h3>Discussion</h3>
+            <article><div class="znc"><p>User comment text</p></div></article>
+          </div>
+        </section>
+        <div class="floating-actions">Like 100</div>
+      </article>
+    </body></html>
+    """
+
+    md = extract_markdown(html, url="https://zenn.dev/zenn/articles/markdown-guide")
+    meta = extract_page_metadata(html, md)
+
+    assert md.startswith("# Zenn Markdown Guide\n\nLead paragraph explaining Markdown syntax.")
+    assert meta.title == "Zenn Markdown Guide"
+    assert meta.description == "Lead paragraph explaining Markdown syntax."
+    assert "> Normal note." in md
+    assert "! Normal note." not in md
+    assert "> **Alert**\n>\n> Danger alert." in md
+    assert "<details>\n<summary>Nested</summary>\n\n> Inside details.\n\n</details>" in md
+    assert md.count("https://zenn.dev/zenn/articles/demo") == 2
+    assert "[https://example.com/card-only](https://example.com/card-only)" in md
+    assert "```mermaid\ngraph LR\n  A --> B\n```" in md
+    assert "```html\n<div>Hi</div>\n```" in md
+    assert "User comment text" not in md
+    assert "Like 100" not in md
+    assert "👩‍💻" not in md
+
+
+def test_extract_markdown_keeps_all_posts_when_multiple_znc_exist_outside_discuss():
+    html = """
+    <html><body><main>
+      <h1>Scrap Title</h1>
+      <div class="znc"><p>First scrap entry.</p></div>
+      <div class="znc"><p>Second scrap entry.</p></div>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html)
+
+    assert "First scrap entry." in md
+    assert "Second scrap entry." in md
+
+
+def test_extract_page_metadata_skips_emoji_only_lines_for_description():
+    html = "<html><head><title>Guide</title></head><body></body></html>"
+    md = "👩‍💻\n\n# Guide\n\nReal summary sentence."
+
+    meta = extract_page_metadata(html, md)
+
+    assert meta.title == "Guide"
+    assert meta.description == "Real summary sentence."

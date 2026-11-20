@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import copy
 import html as html_lib
+import json
 import re
+import unicodedata
 from typing import Any, cast
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
 from bs4.element import Comment, NavigableString, PageElement
@@ -16,6 +19,8 @@ from crwl2md.markdown_code import iter_lines_with_code_flag
 # - .theme-doc-markdown: Docusaurus article body (excludes breadcrumbs, TOC, and pagination inside <main>).
 # - .md-content: MkDocs Material / Zensical content column (excludes .md-sidebar inside <main class="md-main">).
 # - .vp-doc: VitePress rendered Markdown container (excludes .VPDocFooter and .VPDocAside inside <main>).
+# - .it-MdContent: Qiita article Markdown body (excludes action bars, hidden modals, and signup CTAs).
+# - .znc: Zenn article Markdown body outside `#discuss` (excludes floating actions, metadata chrome, and comments).
 # - main: Standard HTML5 main landmark (MDN <main id="content">, generic docs).
 # - [role="main"]: ARIA main landmark (MkDocs default theme <div role="main">, Sphinx themes).
 # - article, body: Fallbacks for blog/article pages without a main landmark.
@@ -23,6 +28,8 @@ _MAIN_SELECTORS: tuple[str, ...] = (
     ".theme-doc-markdown",
     ".md-content",
     ".vp-doc",
+    ".it-MdContent",
+    ".znc",
     "main",
     '[role="main"]',
     "article",
@@ -249,12 +256,21 @@ def _strip_unwanted_dom_elements(container: Tag) -> None:
 
 
 def _normalize_admonitions(container: Tag, soup: BeautifulSoup) -> None:
-    # Covers Docusaurus, MkDocs / Sphinx, VitePress, MDN, and Starlight (which marks callouts up as <aside>).
+    # Covers Docusaurus, MkDocs / Sphinx, VitePress, MDN, Starlight (<aside>), Zenn (aside.msg), and Qiita (div.note.*).
     for admonition in list(
-        container.select(".theme-admonition, .admonition, .custom-block, .notecard, .starlight-aside")
+        container.select(
+            ".theme-admonition, .admonition, .custom-block, .notecard, .starlight-aside, "
+            "aside.msg, div.note.info, div.note.warn, div.note.alert"
+        )
     ):
         if admonition.find_parent("blockquote") is not None:
             continue
+
+        raw_classes = admonition.get("class")
+        class_set = {cls for cls in raw_classes if isinstance(cls, str)} if isinstance(raw_classes, list) else set()
+
+        for icon in list(admonition.select(".msg-symbol, span.fa")):
+            icon.decompose()
 
         heading = admonition.select_one(
             '[class*="admonitionHeading" i], .admonition-heading, .admonition-title, .custom-block-title, '
@@ -266,13 +282,85 @@ def _normalize_admonitions(container: Tag, soup: BeautifulSoup) -> None:
                 heading.replace_with(_new_bold_paragraph(soup, heading_text))
             else:
                 heading.decompose()
+        elif ("msg" in class_set or "note" in class_set) and "alert" in class_set:
+            admonition.insert(0, _new_bold_paragraph(soup, "Alert"))
+        elif "note" in class_set and "warn" in class_set:
+            admonition.insert(0, _new_bold_paragraph(soup, "Warning"))
 
         for content in list(
-            admonition.select('[class*="admonitionContent" i], .admonition-content, .starlight-aside__content')
+            admonition.select(
+                '[class*="admonitionContent" i], .admonition-content, .starlight-aside__content, .msg-content'
+            )
         ):
             content.unwrap()
 
         admonition.name = "blockquote"
+
+
+def _new_code_block(soup: BeautifulSoup, language: str, code_text: str) -> Tag:
+    pre = soup.new_tag("pre")
+    code = soup.new_tag("code", attrs={"data-language": language} if language else None)
+    code.string = code_text
+    pre.append(code)
+    return pre
+
+
+def _normalize_embeds(container: Tag, soup: BeautifulSoup) -> None:
+    # Zenn embeds Mermaid diagrams, HTML/CSS blocks, and link/GitHub cards in `span.zenn-embedded > iframe[data-content]`.
+    for embed in list(container.select("span.zenn-embedded")):
+        iframe = embed.find("iframe")
+        if not isinstance(iframe, Tag):
+            continue
+        raw_content = iframe.get("data-content")
+        if not isinstance(raw_content, str) or not raw_content.strip():
+            continue
+
+        decoded = unquote(raw_content).strip()
+        if not decoded:
+            continue
+
+        raw_classes = embed.get("class")
+        class_set = {cls for cls in raw_classes if isinstance(cls, str)} if isinstance(raw_classes, list) else set()
+
+        if "zenn-embedded-mermaid" in class_set:
+            embed.replace_with(_new_code_block(soup, "mermaid", decoded))
+        elif "zenn-embedded-html" in class_set:
+            embed.replace_with(_new_code_block(soup, "html", decoded))
+        elif decoded.startswith(("http://", "https://")):
+            parent = embed.parent
+            has_fallback_link = isinstance(parent, Tag) and any(
+                str(anchor.get("href") or "").strip() == decoded for anchor in parent.find_all("a", href=True)
+            )
+            if has_fallback_link:
+                embed.decompose()
+            else:
+                link = soup.new_tag("a", href=decoded)
+                link.string = decoded
+                embed.replace_with(link)
+
+    # Qiita renders link cards and Mermaid diagrams as `iframe[data-content]` without fallback anchors in the DOM.
+    for iframe in list(container.select("iframe[data-content]")):
+        if iframe.parent is None:
+            continue
+        src = str(iframe.get("src") or "")
+        raw_content = iframe.get("data-content")
+        if not isinstance(raw_content, str) or not raw_content.strip():
+            continue
+
+        if "/embed-contents/mermaid" in src:
+            try:
+                payload = json.loads(raw_content)
+            except json.JSONDecodeError:
+                continue
+            mermaid_src = payload.get("data") if isinstance(payload, dict) else None
+            if isinstance(mermaid_src, str) and mermaid_src.strip():
+                iframe.replace_with(_new_code_block(soup, "mermaid", mermaid_src.strip()))
+        elif "/embed-contents/link-card" in src:
+            decoded = unquote(raw_content).strip()
+            if decoded.startswith(("http://", "https://")):
+                link = soup.new_tag("a", href=decoded)
+                link.string = decoded
+                iframe.replace_with(link)
 
 
 def _normalize_math(container: Tag, soup: BeautifulSoup) -> None:
@@ -291,6 +379,9 @@ def _normalize_math(container: Tag, soup: BeautifulSoup) -> None:
                 raw_source = el.get("data-tex-source")
                 if isinstance(raw_source, str):
                     tex = raw_source.strip()
+            if not tex and el.name == "embed-katex" and el.select_one(".katex") is None:
+                # Before client-side hydration, Zenn's `<embed-katex>` stores raw TeX directly or inside `<eq>`.
+                tex = el.get_text().strip()
             if not tex:
                 continue
 
@@ -480,6 +571,12 @@ def extract_base_url(html: str, page_url: str = "") -> str:
 
 def _select_main_container(soup: BeautifulSoup) -> Tag:
     for selector in _MAIN_SELECTORS:
+        if selector == ".znc":
+            # Zenn articles have one `.znc` body outside `#discuss`; scraps have multiple and should not be truncated.
+            top_znc = [el for el in soup.select(".znc") if el.find_parent(id="discuss") is None]
+            if len(top_znc) == 1:
+                return top_znc[0]
+            continue
         if selector == "article":
             top_articles = [el for el in soup.select("article") if el.find_parent("article") is None]
             if len(top_articles) == 1:
@@ -490,6 +587,42 @@ def _select_main_container(soup: BeautifulSoup) -> Tag:
     return soup
 
 
+def _clean_heading_text(heading: Tag) -> str:
+    clone = copy.copy(heading)
+    for anchor in list(clone.find_all("a")):
+        if _HEADING_ANCHOR_TEXT_RE.match(anchor.get_text()):
+            anchor.decompose()
+    return re.sub(r"\s+", " ", clone.get_text()).strip()
+
+
+def _find_enclosing_article_h1(target: Tag) -> Tag | None:
+    if target.name in ("main", "article", "body") or target.get("role") == "main":
+        return None
+    article = target.find_parent("article")
+    if article is None:
+        return None
+    for h1 in article.find_all("h1"):
+        if h1 is target or target in h1.parents:
+            continue
+        if h1.find_parent(["nav", "aside"]) is not None or h1.find_parent(id="discuss") is not None:
+            continue
+        if _clean_heading_text(h1):
+            return h1
+    return None
+
+
+def _prepend_enclosing_article_h1(target: Tag) -> None:
+    # Body-only containers (Qiita `.it-MdContent`, Zenn `.znc`) sit below the article's title `<h1>` inside `<article>`.
+    external_h1 = _find_enclosing_article_h1(target)
+    if external_h1 is None:
+        return
+    external_text = _clean_heading_text(external_h1)
+    first_h1 = target.find("h1")
+    if isinstance(first_h1, Tag) and _clean_heading_text(first_h1) == external_text:
+        return
+    target.insert(0, copy.copy(external_h1))
+
+
 def extract_markdown(html: str, url: str = "") -> str:
     """Convert the main content of an HTML page into cleaned Markdown, resolving image URLs against `url`."""
     if not html.strip():
@@ -498,11 +631,13 @@ def extract_markdown(html: str, url: str = "") -> str:
     soup = BeautifulSoup(html, "lxml")
     effective_url = _resolve_base_url(soup, url)
     target = _select_main_container(soup)
+    _prepend_enclosing_article_h1(target)
 
     # Tab labels and <aside> callouts must be rewritten before the generic <button>/<aside> removal.
     _label_tab_panels(target, soup)
     _normalize_admonitions(target, soup)
     _normalize_math(target, soup)
+    _normalize_embeds(target, soup)
     _strip_unwanted_dom_elements(target)
 
     converter = _DomMarkdownConverter(
@@ -546,11 +681,17 @@ def _is_paragraph_line(stripped: str) -> bool:
     )
 
 
+def _has_alphanumeric(text: str) -> bool:
+    return any(unicodedata.category(ch)[0] in ("L", "N") for ch in text)
+
+
 def _extract_first_paragraph(markdown: str) -> str:
     paragraph_lines: list[str] = []
     for line, in_code_block in iter_lines_with_code_flag(markdown):
         stripped = line.strip()
         if not in_code_block and _is_paragraph_line(stripped):
+            if not paragraph_lines and not _has_alphanumeric(_to_plain_text(stripped)):
+                continue
             paragraph_lines.append(stripped)
         elif paragraph_lines:
             break
@@ -577,11 +718,11 @@ def extract_page_metadata(html: str, markdown: str, fallback_title: str = "") ->
 
     title = _extract_first_h1_from_markdown(markdown)
     # Look for <h1> in the content area only; a site-name <h1> in the page header would title every page alike.
-    if not title and (h1 := _select_main_container(soup).find("h1")) is not None:
-        for anchor in list(h1.find_all("a")):
-            if _HEADING_ANCHOR_TEXT_RE.match(anchor.get_text()):
-                anchor.decompose()
-        title = re.sub(r"\s+", " ", h1.get_text()).strip()
+    if not title:
+        main_container = _select_main_container(soup)
+        h1 = _find_enclosing_article_h1(main_container) or main_container.find("h1")
+        if isinstance(h1, Tag):
+            title = _clean_heading_text(h1)
 
     if not title:
         og_title = soup.select_one('meta[property="og:title"]')
