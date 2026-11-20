@@ -53,10 +53,12 @@ def normalize_url_key(url: str) -> str:
     default_port = _DEFAULT_PORTS.get(scheme)
     if default_port and netloc.endswith(default_port):
         netloc = netloc[: -len(default_port)]
+
     # normpath resolves "." / ".." the way browsers do, so "/docs/x/../../etc" can never escape the output root.
     path = posixpath.normpath(re.sub(r"/+", "/", parsed.path or "/"))
     if path.endswith(("/index.html", "/index.htm")):
         path = posixpath.dirname(path)
+
     query = ""
     if parsed.query:
         kept_params = [
@@ -66,6 +68,7 @@ def normalize_url_key(url: str) -> str:
         ]
         if kept_params:
             query = f"?{urlencode(sorted(kept_params))}"
+
     return f"{scheme}://{netloc}{path}{query}"
 
 

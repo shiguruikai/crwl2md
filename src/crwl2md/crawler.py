@@ -82,6 +82,7 @@ def parse_headers(raw: Mapping[str, str] | Sequence[str] | None) -> dict[str, st
     """Parse HTTP headers from a mapping or a sequence of `'Name: Value'` strings."""
     if raw is None:
         return {}
+
     if isinstance(raw, Mapping):
         parsed: dict[str, str] = {}
         for key, value in raw.items():
@@ -90,8 +91,10 @@ def parse_headers(raw: Mapping[str, str] | Sequence[str] | None) -> dict[str, st
                 raise ValueError("HTTP header name must not be empty.")
             parsed[name] = str(value).strip()
         return parsed
+
     if isinstance(raw, (str, bytes)):
         raise ValueError("HTTP headers must be a mapping or a sequence of 'Name: Value' strings.")
+
     parsed = {}
     for item in raw:
         name, sep, value = str(item).partition(":")
@@ -126,6 +129,7 @@ def _parse_proxy(proxy: str) -> _ParsedProxy:
     if not cleaned:
         raise ValueError("Proxy URL must not be empty.")
     safe_repr = repr(_redact_proxy_for_error(cleaned))
+
     if "://" in cleaned:
         parsed = urlparse(cleaned)
         try:
@@ -138,11 +142,13 @@ def _parse_proxy(proxy: str) -> _ParsedProxy:
             )
         if port is not None and not (1 <= port <= 65535):
             raise ValueError(f"Invalid proxy port in {safe_repr}: port must be between 1 and 65535.")
+
         host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
         server = f"{parsed.scheme}://{host}:{port}" if port is not None else f"{parsed.scheme}://{host}"
         username = unquote(parsed.username) if parsed.username is not None else None
         password = unquote(parsed.password) if parsed.password is not None else None
         return _ParsedProxy(server=server, username=username, password=password)
+
     parts = cleaned.split(":")
     if len(parts) in (2, 4) and all(parts) and parts[1].isdigit():
         port_num = int(parts[1])
@@ -152,6 +158,7 @@ def _parse_proxy(proxy: str) -> _ParsedProxy:
         if len(parts) == 4:
             return _ParsedProxy(server=server, username=parts[2], password=parts[3])
         return _ParsedProxy(server=server)
+
     raise ValueError(
         f"Invalid proxy: {safe_repr}. Expected 'http://host:port', 'socks5://host:port', 'host:port', or 'host:port:user:pass'."
     )
@@ -380,6 +387,7 @@ async def _arun_with_browser(
     if opts.user_data_dir is not None:
         browser_kwargs["user_data_dir"] = str(opts.user_data_dir)
     browser_config = BrowserConfig(**browser_kwargs)
+
     try:
         async with _create_browser_crawler(browser_config) as active_crawler:
             return await active_crawler.arun(url, config=run_config)
@@ -416,6 +424,7 @@ def _build_crawler_run_config(
         wait_for_timeout_ms = _CUSTOM_WAIT_TIMEOUT_MS
     else:
         wait_for_timeout_ms = _CONTENT_WAIT_TIMEOUT_MS
+
     # `prefetch=True` returns raw HTML and links without running Crawl4AI's own HTML cleaner or html2text converter.
     # Anti-bot sensors often run after `domcontentloaded`, so stealth mode waits for the `load` event.
     run_kwargs: dict[str, Any] = {
@@ -451,6 +460,7 @@ async def _fetch_html_with_browser(
     results = _flatten_crawl_results(raw)
     if not results:
         raise RuntimeError(f"Failed to fetch {url}: no result returned by crawler")
+
     res = results[0]
     final_url = _final_url(res)
     status_code = _effective_status_code(res)
@@ -458,6 +468,7 @@ async def _fetch_html_with_browser(
     if not res.success or http_error:
         reason = res.error_message or (f"HTTP {status_code}" if http_error else "Unknown error")
         raise RuntimeError(f"Failed to fetch {final_url}: {reason}")
+
     return res.html or "", final_url
 
 
@@ -535,6 +546,7 @@ async def convert_single(
     if link_base_url:
         # A standalone file has no sibling pages, so every relative link must become an absolute URL.
         md = rewrite_markdown_links(md, link_base_url, "", {})
+
     if resolved_fields is not None:
         meta = extract_page_metadata(html, md)
         fm = format_frontmatter(meta.title, meta.description, final_url, fields=resolved_fields)
@@ -1001,12 +1013,14 @@ async def _analyze_unfetched_links(
                 cleaned_href = href.strip()
                 if not cleaned_href or cleaned_href.startswith(("#", "mailto:", "tel:", "javascript:", "data:")):
                     continue
+
                 abs_url = urljoin(item.link_base_url, cleaned_href)
                 parsed = urlparse(abs_url)
                 if parsed.scheme not in ("http", "https") or not parsed.netloc:
                     continue
                 clean_url = parsed._replace(fragment="").geturl()
                 key = normalize_url_key(clean_url)
+
                 if key in fetched_keys or key in unfetched_keys:
                     continue
                 if await filter_chain.apply(clean_url):
@@ -1101,7 +1115,6 @@ async def crawl_site(
     )
 
     raw_results = await _arun_with_browser(config.url, run_config, options=options, crawler=crawler)
-
     all_results = _flatten_crawl_results(raw_results)
     if on_progress is not None and not progress_reported:
         crawled_so_far = 0
@@ -1114,6 +1127,7 @@ async def crawl_site(
             ):
                 crawled_so_far += 1
             on_progress(res, crawled_so_far)
+
     triaged = await _triage_results(all_results, config.url, filter_chain)
 
     extracted: list[_ExtractedPage] = []
@@ -1134,6 +1148,7 @@ async def crawl_site(
                 FailedPage(url=final_url, status_code=status_code, reason=f"Conversion failed: {exc}")
             )
             continue
+
         extracted.append(
             _ExtractedPage(
                 result=res,

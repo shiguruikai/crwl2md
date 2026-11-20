@@ -331,6 +331,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     flatten_shadow_dom=args.flatten_shadow_dom,
                 )
             )
+
             if args.output is not None:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(markdown, encoding="utf-8", newline="\n")
@@ -370,6 +371,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 force=args.force,
                 verbose=args.verbose,
             )
+
             print(f"Crawl scope: {describe_crawl_scope(config)}", file=sys.stderr)
             on_progress = (
                 None
@@ -381,6 +383,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             summary = asyncio.run(crawl_site(config, on_progress=on_progress))
+
             print(
                 f"Crawled {summary.page_count} pages and generated {summary.toc_count} index files in {summary.output_dir}"
             )
@@ -389,6 +392,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for dir_name, count in dir_counts:
                     noun = "page" if count == 1 else "pages"
                     print(f"  - {dir_name}: {count} {noun}")
+
             if summary.seed_redirected_to:
                 print(
                     f"Warning: the seed URL was redirected to {summary.seed_redirected_to}, outside the crawl scope, "

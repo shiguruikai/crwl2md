@@ -141,10 +141,12 @@ class PageMetadata(BaseModel):
 def _extract_lang_from_attrs(tag: Tag | None, *, is_code_element: bool) -> str:
     if tag is None:
         return ""
+
     for attr in ("data-language", "data-lang"):
         val = tag.get(attr)
         if isinstance(val, str) and (cleaned := val.strip()) and cleaned.lower() not in _NON_LANGUAGE_NAMES:
             return cleaned
+
     classes = tag.get("class")
     if isinstance(classes, list):
         str_classes = [cls for cls in classes if isinstance(cls, str)]
@@ -153,17 +155,20 @@ def _extract_lang_from_attrs(tag: Tag | None, *, is_code_element: bool) -> str:
         # `<code>` appears before `hljs`; one placed on `<pre>` or a wrapper is picked up from that ancestor.
         if is_code_element and tag.get("data-highlighted") == "yes" and str_classes and str_classes[0] == "hljs":
             return ""
+
         for i, cls in enumerate(str_classes):
             match = _CODE_LANG_CLASS_RE.match(cls) or (
                 _CODE_LANG_SHORT_CLASS_RE.match(cls) if is_code_element else None
             )
             if match and match.group(1).lower() not in _NON_LANGUAGE_NAMES:
                 return match.group(1)
+
             # MDN SyntaxHighlighter emits `class="brush: js notranslate"`, tokenized as ["brush:", "js", ...].
             if cls == "brush:" and i + 1 < len(str_classes):
                 next_cls = str_classes[i + 1].strip(";")
                 if next_cls and next_cls != "notranslate" and next_cls.lower() not in _NON_LANGUAGE_NAMES:
                     return next_cls
+
     return ""
 
 
@@ -412,11 +417,13 @@ def extract_markdown(html: str, url: str = "") -> str:
     soup = BeautifulSoup(html, "lxml")
     effective_url = _resolve_base_url(soup, url)
     target = _select_main_container(soup)
+
     # Tab labels and <aside> callouts must be rewritten before the generic <button>/<aside> removal.
     _label_tab_panels(target, soup)
     _normalize_admonitions(target, soup)
     _strip_unwanted_dom_elements(target)
     _normalize_anchor_newlines(target)
+
     converter = _DomMarkdownConverter(
         base_url=effective_url,
         heading_style="ATX",
@@ -575,11 +582,13 @@ def extract_sidebar_links(html: str, base_url: str) -> list[str]:
                     if clean_base_url and _is_active_leaf_nav_item(node):
                         container_entries.append((False, clean_base_url))
                     continue
+
                 if not node.has_attr("href"):
                     continue
                 href = str(node["href"]).strip()
                 if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
                     continue
+
                 abs_url = urljoin(effective_base, href) if effective_base else href
                 parsed = urlparse(abs_url)
                 if parsed.scheme and parsed.scheme not in ("http", "https"):
@@ -594,12 +603,14 @@ def extract_sidebar_links(html: str, base_url: str) -> list[str]:
             # Ignore nav containers with no real document links (e.g. a linkless toolbar with an active badge).
             if not anchor_urls:
                 continue
+
             for is_anchor, clean_url in container_entries:
                 if not is_anchor and clean_url in anchor_urls:
                     continue
                 if clean_url not in seen:
                     seen.add(clean_url)
                     candidate_links.append(clean_url)
+
         if candidate_links:
             break
 

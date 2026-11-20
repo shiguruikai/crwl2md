@@ -196,6 +196,7 @@ def benchmark_extractors(iterations: int = 5, dump: bool = False) -> None:
                 noise_str = "対象なし"
 
             print(f"| `{method}` | {elapsed_ms:.2f} | {len(md)} | {kept_str} | {noise_str} |")
+
         if dump:
             for method, md in outputs.items():
                 print(f"\n#### 出力サンプル: `{method}`\n```markdown\n{md}\n```")
@@ -241,6 +242,7 @@ def benchmark_toc_generation() -> None:
       <a href="/docs/cli/intro">CLI Introduction</a>
     </nav></aside></body></html>
     """
+
     urls = [item[0] for item in sample_pages]
     url_to_relpath = compute_relative_paths(urls, seed_url)
     docs = [
