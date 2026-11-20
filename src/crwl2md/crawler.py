@@ -49,17 +49,20 @@ _NON_HTML_ASSET_RE = re.compile(
 )
 
 # Wait until the main content container has meaningful text so client-rendered pages finish hydrating.
+# When no content container exists yet, wait for `document.readyState === 'complete'` before falling back to
+# `document.body` so initial cookie banners or shells on SPAs do not satisfy the check before JS mounts the app.
 # Crawl4AI's `csp_compliant_wait` returns False on timeout without failing the page, so short pages still succeed.
 _CONTENT_READY_JS = (
     "js:() => {"
-    " const selectors = ['.theme-doc-markdown', '.md-content', '.vp-doc', 'main', '[role=\"main\"]'];"
+    " const selectors = ['.theme-doc-markdown', '.md-content', '.vp-doc', '.it-MdContent', '.znc', 'main', '[role=\"main\"]'];"
     " for (const sel of selectors) {"
     "  const el = document.querySelector(sel);"
     "  if (el) return (el.innerText || '').trim().length >= 200;"
     " }"
     " const articles = document.querySelectorAll('article');"
-    " const target = articles.length === 1 ? articles[0] : document.body;"
-    " return Boolean(target && (target.innerText || '').trim().length >= 200);"
+    " if (articles.length === 1) return (articles[0].innerText || '').trim().length >= 200;"
+    " if (document.readyState !== 'complete') return false;"
+    " return Boolean(document.body && (document.body.innerText || '').trim().length >= 200);"
     "}"
 )
 _CONTENT_WAIT_TIMEOUT_MS = 5000

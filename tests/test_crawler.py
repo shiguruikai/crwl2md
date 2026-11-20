@@ -315,6 +315,7 @@ async def test_crawl_site_configures_content_ready_wait(tmp_path: Path):
 
     assert fake_crawler.run_config.prefetch is True
     assert fake_crawler.run_config.wait_for.startswith("js:")
+    assert "document.readyState !== 'complete'" in fake_crawler.run_config.wait_for
     assert fake_crawler.run_config.wait_for_timeout == 5000
 
 
