@@ -34,6 +34,7 @@
 - [src/crwl2md/site_builder.py](src/crwl2md/site_builder.py): URL→相対パス設計、Markdown 内の相対リンク書き換え、YAML フロントマター生成、階層目次（`index.md`）生成
 - [src/crwl2md/crawler.py](src/crwl2md/crawler.py): 単一ページ変換（`convert_single`, `convert_single_sync`）および Crawl4AI によるサイトクロール（`crawl_site`, `crawl_site_sync`）
 - [src/crwl2md/cli.py](src/crwl2md/cli.py): `crwl2md` CLI エントリポイント
+- [skills/crwl2md/SKILL.md](skills/crwl2md/SKILL.md): AI エージェント向けの CLI 利用スキル
 - [docs/comparison.md](docs/comparison.md): 各変換手法・目次生成手法の検証結果
 
 ## Crawl4AI 側の不具合・仕様と対処
@@ -59,4 +60,5 @@
 - **ソースコメント**: コメントは英語で記述し、コードを見れば分かる自明なコメントは書かない。公開 API（公開クラス・公開関数）には簡潔な英語 docstring を記述する。
 - **検証**: 変更後は `task format`, `task lint`, `task test` がすべて成功することを確認する。
 - **テスト**: AAA（Arrange-Act-Assert）パターンで記述し、ネットワーク依存のテストにはフェイクまたはモックを用いる。
+- **スキル**: CLI のサブコマンドや出力仕様を変更したときは、[skills/crwl2md/SKILL.md](skills/crwl2md/SKILL.md) の記述も合わせて更新する。
 - **コミット**: Conventional Commits 形式（`<type>: <日本語の簡潔な概要>`）で署名付きとする。
