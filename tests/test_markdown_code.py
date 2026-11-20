@@ -43,6 +43,22 @@ def test_iter_lines_with_code_flag_detects_fences_inside_blockquotes_and_lists()
     assert flags == [True, True, True, True, True, True, False]
 
 
+def test_iter_lines_with_code_flag_closes_quoted_fence_when_blockquote_ends():
+    markdown = "> ```-:text\n\nprose\n```python\ncode\n```\nafter"
+
+    flags = [in_code for _, in_code in iter_lines_with_code_flag(markdown)]
+
+    assert flags == [True, False, False, True, True, True, False]
+
+
+def test_iter_lines_with_code_flag_ignores_inline_triple_backtick_code_span():
+    markdown = "```inline``` text\nnext prose line"
+
+    flags = [in_code for _, in_code in iter_lines_with_code_flag(markdown)]
+
+    assert flags == [False, False]
+
+
 def test_sub_outside_code_spans_leaves_matches_inside_inline_code_untouched():
     line = "See [a](/a), `[b](/b)` and ``[c](/c) ` tick``."
 

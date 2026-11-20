@@ -5,6 +5,7 @@ from crwl2md.extractors import (
     extract_page_metadata,
     extract_sidebar_links,
 )
+from crwl2md.site_builder import rewrite_markdown_links
 
 SAMPLE_DOCUSAURUS_HTML = """
 <!DOCTYPE html>
@@ -700,3 +701,42 @@ def test_extract_page_metadata_ignores_site_name_heading_outside_main_content():
     meta = extract_page_metadata(html, md)
 
     assert meta.title == "Real Page Title"
+
+
+def test_extract_markdown_drops_closed_dialogs_and_tooltips():
+    html = """
+    <html><body><main>
+      <h1>Article</h1>
+      <p role="tooltip">Share on X</p>
+      <dialog aria-modal="true"><p>Are you sure you want to delete?</p></dialog>
+      <dialog open><p>Active notice</p></dialog>
+      <p>Body paragraph.</p>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html)
+
+    assert "Share on X" not in md
+    assert "delete" not in md
+    assert "Active notice" in md
+    assert "Body paragraph." in md
+
+
+def test_extract_markdown_collapses_block_children_inside_anchor_for_link_rewriting():
+    html = """
+    <html><body><main>
+      <a href="/topics/zenn">
+        <div><img src="/img/topic.png" alt="" width="24" height="24"></div>
+        <div>Zenn</div>
+      </a>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html, url="https://example.com/articles/demo")
+    rewritten = rewrite_markdown_links(md, "https://example.com/articles/demo", "", {})
+
+    assert "\n" not in md
+    assert (
+        rewritten
+        == '[<img src="https://example.com/img/topic.png" alt="" width="24" height="24"> Zenn](https://example.com/topics/zenn)'
+    )

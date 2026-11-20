@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html as html_lib
 import re
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
@@ -59,6 +59,7 @@ _UNWANTED_TAGS: tuple[str, ...] = (
 # - .hash-link, .headerlink, .header-anchor: Heading permalink icons (Docusaurus, MkDocs / Zensical, VitePress).
 # - .sr-only, .visually-hidden, [hidden]: Screen-reader-only utility text and hidden DOM nodes (VitePress, MDN, Zensical).
 #   Inactive tab panels are also `hidden` but hold real content, so they are kept and labeled by `_label_tab_panels`.
+# - dialog:not([open]), [role="tooltip"]: Closed native modal dialogs and floating hover tooltips (Qiita, generic apps).
 _UNWANTED_SELECTORS: tuple[str, ...] = (
     ".breadcrumbs",
     '[aria-label*="breadcrumb" i]',
@@ -82,6 +83,8 @@ _UNWANTED_SELECTORS: tuple[str, ...] = (
     ".sr-only",
     ".visually-hidden",
     '[hidden]:not([role="tabpanel"])',
+    "dialog:not([open])",
+    '[role="tooltip"]',
 )
 
 # Ordered sidebar navigation selectors for TOC page ordering:
@@ -271,15 +274,6 @@ def _normalize_admonitions(container: Tag, soup: BeautifulSoup) -> None:
         admonition.name = "blockquote"
 
 
-def _normalize_anchor_newlines(container: Tag) -> None:
-    for anchor in container.find_all("a"):
-        for node in list(anchor.descendants):
-            if isinstance(node, NavigableString) and ("\n" in node or "\r" in node):
-                if node.find_parent("pre") is not None:
-                    continue
-                node.replace_with(re.sub(r"\s*\r?\n\s*", " ", str(node)))
-
-
 def _pick_image_src(el: Tag) -> str:
     srcset = el.get("srcset") or el.get("data-srcset")
     first_srcset_url = srcset.split(",")[0].split()[0] if isinstance(srcset, str) and srcset.strip() else None
@@ -320,6 +314,12 @@ class _DomMarkdownConverter(MarkdownConverter):
     def __init__(self, *, base_url: str = "", **options: Any) -> None:
         super().__init__(**options)
         self._base_url = base_url if base_url.startswith(("http://", "https://")) else ""
+
+    def convert_a(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        # Anchors wrapping block children (such as avatar/topic cards) emit newlines that break inline Markdown links.
+        if "_noformat" not in parent_tags and ("\n" in text or "\r" in text):
+            text = re.sub(r"[ \t]*\r?\n[ \t\r\n]*", " ", text.strip("\r\n"))
+        return str(cast(Any, super()).convert_a(el, text, parent_tags))
 
     def convert_pre(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         code = _PRE_LEADING_BLANK_RE.sub("", _code_text(el)).rstrip(" \n")
@@ -422,7 +422,6 @@ def extract_markdown(html: str, url: str = "") -> str:
     _label_tab_panels(target, soup)
     _normalize_admonitions(target, soup)
     _strip_unwanted_dom_elements(target)
-    _normalize_anchor_newlines(target)
 
     converter = _DomMarkdownConverter(
         base_url=effective_url,
