@@ -966,3 +966,55 @@ def test_extract_page_metadata_skips_emoji_only_lines_for_description():
 
     assert meta.title == "Guide"
     assert meta.description == "Real summary sentence."
+
+
+def test_extract_markdown_strips_material_and_google_ligature_icon_fonts():
+    html = """
+    <html><body><main>
+      <h1><span class="google-material-icons" aria-hidden="true">rocket_launch</span>Guide</h1>
+      <div class="main-content">
+        <span aria-hidden="true" class="icon material-symbols-outlined notranslate"> lightbulb </span>
+        <div class="body"><div class="message"><div callout-content-text=""><p>Choice questions always distribute probability.</p></div></div></div>
+      </div>
+      <div class="admonition">
+        <p class="admonition-title"><span class="material-icons-outlined" aria-hidden="true">warning</span>Caution</p>
+        <p>Check the <a href="https://example.com/docs">API docs <span class="material-icons">open_in_new</span></a><a href="https://example.com/copy"><span class="google-symbols">content_copy</span></a>.</p>
+      </div>
+      <div class="tabs-container">
+        <ul role="tablist">
+          <li role="tab"><span class="material-symbols-rounded">terminal</span>CLI</li>
+          <li role="tab"><span class="material-symbols-sharp">code</span>SDK</li>
+        </ul>
+        <div>
+          <div role="tabpanel"><p>Run CLI.</p></div>
+          <div role="tabpanel" hidden><p>Use SDK.</p></div>
+        </div>
+      </div>
+      <p><span class="material-icons-round">info</span><span class="material-icons-sharp">check</span><span class="material-icons-two-tone">star</span>Clean text.</p>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html)
+    meta = extract_page_metadata(html, "")
+
+    assert meta.title == "Guide"
+    assert "# Guide" in md
+    assert "Choice questions always distribute probability." in md
+    assert "> **Caution**\n>\n> Check the [API docs](https://example.com/docs)" in md
+    assert "**CLI**\n\nRun CLI." in md
+    assert "**SDK**\n\nUse SDK." in md
+    assert "Clean text." in md
+    for glyph in (
+        "rocket_launch",
+        "lightbulb",
+        "warning",
+        "open_in_new",
+        "content_copy",
+        "terminal",
+        "code",
+        "info",
+        "check",
+        "star",
+    ):
+        assert glyph not in md
+    assert "example.com/copy" not in md

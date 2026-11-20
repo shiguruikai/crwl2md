@@ -94,6 +94,20 @@ _UNWANTED_SELECTORS: tuple[str, ...] = (
     '[role="tooltip"]',
 )
 
+# Ligature icon font classes whose text nodes are glyph names (e.g. "lightbulb", "open_in_new"), not prose.
+_ICON_FONT_SELECTORS: tuple[str, ...] = (
+    ".material-symbols-outlined",
+    ".material-symbols-rounded",
+    ".material-symbols-sharp",
+    ".material-icons",
+    ".material-icons-outlined",
+    ".material-icons-round",
+    ".material-icons-sharp",
+    ".material-icons-two-tone",
+    ".google-symbols",
+    ".google-material-icons",
+)
+
 # Ordered sidebar navigation selectors for TOC page ordering:
 # - aside nav, .VPSidebar: Standard <aside><nav> and VitePress sidebar (Docusaurus, VitePress, MDN).
 # - nav.menu: Docusaurus standalone sidebar nav (<nav class="menu">).
@@ -589,6 +603,8 @@ def _select_main_container(soup: BeautifulSoup) -> Tag:
 
 def _clean_heading_text(heading: Tag) -> str:
     clone = copy.copy(heading)
+    for icon in clone.select(", ".join(_ICON_FONT_SELECTORS)):
+        icon.decompose()
     for anchor in list(clone.find_all("a")):
         if _HEADING_ANCHOR_TEXT_RE.match(anchor.get_text()):
             anchor.decompose()
@@ -632,6 +648,10 @@ def extract_markdown(html: str, url: str = "") -> str:
     effective_url = _resolve_base_url(soup, url)
     target = _select_main_container(soup)
     _prepend_enclosing_article_h1(target)
+
+    # Strip ligature icon fonts first so tab labels and admonition headings do not inherit glyph names.
+    for icon in target.select(", ".join(_ICON_FONT_SELECTORS)):
+        icon.decompose()
 
     # Tab labels and <aside> callouts must be rewritten before the generic <button>/<aside> removal.
     _label_tab_panels(target, soup)
