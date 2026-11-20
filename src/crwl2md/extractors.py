@@ -126,6 +126,7 @@ _ORDERED_LIST_ITEM_RE = re.compile(r"^\d+[.)]\s")
 _BACKTICK_FENCE_RUN_RE = re.compile(r"`{3,}")
 _BACKTICK_RUN_RE = re.compile(r"`+")
 _UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
+_TASK_CHECKBOX_GAP_RE = re.compile(r"^(\[[ x]\])[ \t]+")
 # Blank lines before the first code line of a <pre>; the first line's own indentation is kept.
 _PRE_LEADING_BLANK_RE = re.compile(r"^[ \n]*\n")
 _HEADING_TAGS: tuple[str, ...] = ("h1", "h2", "h3", "h4", "h5", "h6")
@@ -274,6 +275,48 @@ def _normalize_admonitions(container: Tag, soup: BeautifulSoup) -> None:
         admonition.name = "blockquote"
 
 
+def _normalize_math(container: Tag, soup: BeautifulSoup) -> None:
+    # KaTeX renders both MathML (containing an `application/x-tex` annotation) and an aria-hidden visual DOM tree.
+    # Replace each math container with a marker `<math>` tag so `_DomMarkdownConverter.convert_math` emits raw TeX.
+    for selector in ("embed-katex", ".katex-display", ".katex"):
+        for el in list(container.select(selector)):
+            if el.parent is None or el.find_parent("pre") is not None:
+                continue
+
+            tex = ""
+            annotation = el.select_one('annotation[encoding="application/x-tex"]')
+            if annotation is not None:
+                tex = annotation.get_text().strip()
+            if not tex:
+                raw_source = el.get("data-tex-source")
+                if isinstance(raw_source, str):
+                    tex = raw_source.strip()
+            if not tex:
+                continue
+
+            raw_classes = el.get("class")
+            class_set = {cls for cls in raw_classes if isinstance(cls, str)} if isinstance(raw_classes, list) else set()
+            math_tag = el.find("math")
+            is_display = (
+                "katex-display" in class_set
+                or el.select_one(".katex-display") is not None
+                or (isinstance(math_tag, Tag) and str(math_tag.get("display") or "").lower() == "block")
+                or (
+                    el.name == "embed-katex"
+                    and el.has_attr("display-mode")
+                    and str(el.get("display-mode")).lower() not in ("0", "false")
+                )
+            )
+            marker = soup.new_tag(
+                "math",
+                attrs={
+                    "data-crwl2md-tex": tex,
+                    "data-crwl2md-display": "block" if is_display else "inline",
+                },
+            )
+            el.replace_with(marker)
+
+
 def _pick_image_src(el: Tag) -> str:
     srcset = el.get("srcset") or el.get("data-srcset")
     first_srcset_url = srcset.split(",")[0].split()[0] if isinstance(srcset, str) and srcset.strip() else None
@@ -320,6 +363,44 @@ class _DomMarkdownConverter(MarkdownConverter):
         if "_noformat" not in parent_tags and ("\n" in text or "\r" in text):
             text = re.sub(r"[ \t]*\r?\n[ \t\r\n]*", " ", text.strip("\r\n"))
         return str(cast(Any, super()).convert_a(el, text, parent_tags))
+
+    def convert_input(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        if "li" in parent_tags and str(el.get("type") or "").lower() == "checkbox":
+            return "[x] " if el.has_attr("checked") else "[ ] "
+        return ""
+
+    def convert_li(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        stripped = text.lstrip(" \t\r\n")
+        if stripped.startswith(("[ ] ", "[x] ")):
+            text = _TASK_CHECKBOX_GAP_RE.sub(r"\1 ", stripped, count=1)
+        return str(cast(Any, super()).convert_li(el, text, parent_tags))
+
+    def convert_math(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        if el.has_attr("data-crwl2md-tex"):
+            tex = str(el["data-crwl2md-tex"]).strip()
+            if not tex:
+                return ""
+            if el.get("data-crwl2md-display") == "block" and "td" not in parent_tags and "th" not in parent_tags:
+                return f"\n\n$$\n{tex}\n$$\n\n"
+            single_line = re.sub(r"\s*\r?\n\s*", " ", tex)
+            return f"${single_line}$"
+        return text
+
+    def convert_summary(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        if "details" not in parent_tags:
+            return text
+        # Raw HTML inside a `<summary>` block is not parsed as Markdown, so avoid markdownify backslash escapes.
+        summary_text = html_lib.escape(re.sub(r"\s+", " ", el.get_text()).strip(), quote=False)
+        return f"<summary>{summary_text}</summary>\n\n" if summary_text else ""
+
+    def convert_details(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        body = text.strip()
+        if not body:
+            return ""
+        open_attr = " open" if el.has_attr("open") else ""
+        # Keep a blank line before Markdown body when no `<summary>` opens the block, and before `</details>`.
+        lead_sep = "\n" if body.startswith("<summary>") else "\n\n"
+        return f"\n\n<details{open_attr}>{lead_sep}{body}\n\n</details>\n\n"
 
     def convert_pre(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         code = _PRE_LEADING_BLANK_RE.sub("", _code_text(el)).rstrip(" \n")
@@ -421,6 +502,7 @@ def extract_markdown(html: str, url: str = "") -> str:
     # Tab labels and <aside> callouts must be rewritten before the generic <button>/<aside> removal.
     _label_tab_panels(target, soup)
     _normalize_admonitions(target, soup)
+    _normalize_math(target, soup)
     _strip_unwanted_dom_elements(target)
 
     converter = _DomMarkdownConverter(
@@ -457,7 +539,7 @@ def _extract_first_h1_from_markdown(markdown: str) -> str:
 def _is_paragraph_line(stripped: str) -> bool:
     return not (
         not stripped
-        or stripped.startswith(("- ", "* ", "+ ", ">", "|", "![", "<img"))
+        or stripped.startswith(("- ", "* ", "+ ", ">", "|", "![", "<img", "<details", "<summary", "</details", "$$"))
         or _ATX_HEADING_RE.match(stripped)
         or _THEMATIC_BREAK_RE.match(stripped)
         or _ORDERED_LIST_ITEM_RE.match(stripped)

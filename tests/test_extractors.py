@@ -740,3 +740,97 @@ def test_extract_markdown_collapses_block_children_inside_anchor_for_link_rewrit
         rewritten
         == '[<img src="https://example.com/img/topic.png" alt="" width="24" height="24"> Zenn](https://example.com/topics/zenn)'
     )
+
+
+def test_extract_markdown_converts_katex_and_embed_katex_to_latex():
+    html = """
+    <html><body><main>
+      <h1>Math</h1>
+      <section class="zenn-katex">
+        <embed-katex display-mode="1" data-tex-source="\ne^{i\\theta} = \\cos\\theta + i\\sin\\theta\n">
+          <span class="katex-display"><span class="katex">
+            <span class="katex-mathml"><math display="block"><semantics><mrow>eiθ</mrow>
+              <annotation encoding="application/x-tex">\ne^{i\\theta} = \\cos\\theta + i\\sin\\theta\n</annotation>
+            </semantics></math></span>
+            <span aria-hidden="true" class="katex-html">eiθ</span>
+          </span></span>
+        </embed-katex>
+      </section>
+      <p>Inline <embed-katex data-tex-source="a\\ne0"><span class="katex">
+        <span class="katex-mathml"><math><semantics><mrow>a≠0</mrow>
+          <annotation encoding="application/x-tex">a\\ne0</annotation>
+        </semantics></math></span>
+        <span aria-hidden="true" class="katex-html">a≠0</span>
+      </span></embed-katex> and unhydrated <embed-katex data-tex-source="x_1 + x_2"></embed-katex>.</p>
+      <p>Standard <span class="katex"><span class="katex-mathml"><math><semantics>
+        <annotation encoding="application/x-tex">\\alpha_0</annotation>
+      </semantics></math></span><span aria-hidden="true" class="katex-html">α0</span></span>.</p>
+      <span class="katex-display"><span class="katex"><span class="katex-mathml"><math display="block"><semantics>
+        <annotation encoding="application/x-tex">\\sum_{i=1}^n i</annotation>
+      </semantics></math></span><span aria-hidden="true" class="katex-html">Σ</span></span></span>
+      <table>
+        <thead><tr><th>Formula</th></tr></thead>
+        <tbody><tr><td><span class="katex-display"><span class="katex"><span class="katex-mathml"><math display="block"><semantics>
+          <annotation encoding="application/x-tex">a + b</annotation>
+        </semantics></math></span></span></span></td></tr></tbody>
+      </table>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html)
+
+    assert "$$\ne^{i\\theta} = \\cos\\theta + i\\sin\\theta\n$$" in md
+    assert "Inline $a\\ne0$ and unhydrated $x_1 + x_2$." in md
+    assert "Standard $\\alpha_0$." in md
+    assert "$$\n\\sum_{i=1}^n i\n$$" in md
+    assert "| $a + b$ |" in md
+    assert "eiθ" not in md
+    assert "a≠0" not in md
+
+
+def test_extract_markdown_preserves_gfm_task_list_checkboxes():
+    html = """
+    <html><body><main>
+      <h1>Tasks</h1>
+      <input type="checkbox" checked>
+      <ul>
+        <li class="task-list-item"><input type="checkbox" disabled>タスク1</li>
+        <li class="task-list-item"><input type="checkbox" checked disabled> タスク2
+          <ul>
+            <li><p><input type="checkbox" checked> Subtask</p></li>
+          </ul>
+        </li>
+      </ul>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html)
+
+    assert "- [ ] タスク1" in md
+    assert "- [x] タスク2" in md
+    assert "  - [x] Subtask" in md
+
+
+def test_extract_markdown_preserves_details_and_summary_elements():
+    html = """
+    <html><head><title>Accordion</title></head><body><main>
+      <details>
+        <summary>アンダースコア _ を含む &lt;tag&gt;</summary>
+        <div class="details-content"><p>折りたたみの中身</p></div>
+      </details>
+      <details open>
+        <summary>Code sample</summary>
+        <pre><code class="language-rb">puts 'ok'</code></pre>
+      </details>
+      <details><p>No summary body</p></details>
+      <p>Lead paragraph for metadata.</p>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html)
+    meta = extract_page_metadata(html, md)
+
+    assert "<details>\n<summary>アンダースコア _ を含む &lt;tag&gt;</summary>\n\n折りたたみの中身\n\n</details>" in md
+    assert "<details open>\n<summary>Code sample</summary>\n\n```rb\nputs 'ok'\n```\n\n</details>" in md
+    assert "<details>\n\nNo summary body\n\n</details>" in md
+    assert meta.description == "折りたたみの中身"
