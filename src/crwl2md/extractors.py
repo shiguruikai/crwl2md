@@ -62,9 +62,12 @@ _UNWANTED_TAGS: tuple[str, ...] = (
 # - .md-content__button: Action icon buttons ("Edit this page", "Copy as Markdown") inside content (Zensical / Material).
 # - .VPDocFooter, .edit-link: Page footer and GitHub edit link (VitePress).
 # - .translation-banner, .article-footer: Localization banner and feedback/last-modified footer (MDN).
-# - .example-header, [class*="language-"] > span.lang: Code block language badges that duplicate fence tags (MDN, VitePress).
+# - #article-header.display-none-print, details.popover: Article action bars and dropdown popovers (Microsoft Learn).
+# - .code-block-header, .example-header, [class*="language-"] > span.lang: Code block headers that duplicate fence tags (Microsoft Learn, MDN, VitePress).
+# - .feedback-section[data-open-source-feedback-section], #site-user-feedback-footer, #ms--additional-resources-mobile,
+#   #article-metadata-footer: GitHub collaboration, feedback, recommendations, and last-updated footers (Microsoft Learn).
 # - .hash-link, .headerlink, .header-anchor: Heading permalink icons (Docusaurus, MkDocs / Zensical, VitePress).
-# - .sr-only, .visually-hidden, [hidden]: Screen-reader-only utility text and hidden DOM nodes (VitePress, MDN, Zensical).
+# - .sr-only, .visually-hidden, .is-hidden, [hidden]: Screen-reader-only utility text and hidden DOM nodes (VitePress, MDN, Zensical, Microsoft Learn).
 #   Inactive tab panels are also `hidden` but hold real content, so they are kept and labeled by `_label_tab_panels`.
 # - dialog:not([open]), [role="tooltip"]: Closed native modal dialogs and floating hover tooltips (Qiita, generic apps).
 _UNWANTED_SELECTORS: tuple[str, ...] = (
@@ -82,6 +85,13 @@ _UNWANTED_SELECTORS: tuple[str, ...] = (
     ".edit-link",
     ".translation-banner",
     ".article-footer",
+    "#article-header.display-none-print",
+    "details.popover",
+    ".code-block-header",
+    ".feedback-section[data-open-source-feedback-section]",
+    "#site-user-feedback-footer",
+    "#ms--additional-resources-mobile",
+    "#article-metadata-footer",
     ".example-header",
     '[class*="language-"] > span.lang',
     ".hash-link",
@@ -89,6 +99,7 @@ _UNWANTED_SELECTORS: tuple[str, ...] = (
     ".header-anchor",
     ".sr-only",
     ".visually-hidden",
+    '.is-hidden:not([role="tabpanel"])',
     '[hidden]:not([role="tabpanel"])',
     "dialog:not([open])",
     '[role="tooltip"]',
@@ -270,11 +281,12 @@ def _strip_unwanted_dom_elements(container: Tag) -> None:
 
 
 def _normalize_admonitions(container: Tag, soup: BeautifulSoup) -> None:
-    # Covers Docusaurus, MkDocs / Sphinx, VitePress, MDN, Starlight (<aside>), Zenn (aside.msg), and Qiita (div.note.*).
+    # Covers Docusaurus, MkDocs / Sphinx, VitePress, MDN, Starlight (<aside>), Zenn (aside.msg), Qiita (div.note.*),
+    # and Microsoft Learn (div.alert > .alert-title).
     for admonition in list(
         container.select(
             ".theme-admonition, .admonition, .custom-block, .notecard, .starlight-aside, "
-            "aside.msg, div.note.info, div.note.warn, div.note.alert"
+            "aside.msg, div.note.info, div.note.warn, div.note.alert, div.alert:has(> .alert-title)"
         )
     ):
         if admonition.find_parent("blockquote") is not None:
@@ -288,7 +300,7 @@ def _normalize_admonitions(container: Tag, soup: BeautifulSoup) -> None:
 
         heading = admonition.select_one(
             '[class*="admonitionHeading" i], .admonition-heading, .admonition-title, .custom-block-title, '
-            ".starlight-aside__title"
+            ".starlight-aside__title, .alert-title"
         )
         if heading is not None:
             heading_text = re.sub(r"\s+", " ", heading.get_text()).strip()

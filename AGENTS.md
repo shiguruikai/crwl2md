@@ -36,6 +36,7 @@
 - [src/crwl2md/cli.py](src/crwl2md/cli.py): `crwl2md` CLI エントリポイント
 - [skills/crwl2md/SKILL.md](skills/crwl2md/SKILL.md): AI エージェント向けの CLI 利用スキル
 - [docs/comparison.md](docs/comparison.md): 各変換手法・目次生成手法の検証結果
+- [CHANGELOG.md](CHANGELOG.md): リリースごとの変更履歴（Keep a Changelog 1.1.0 形式）
 
 ## Crawl4AI 側の不具合・仕様と対処
 
@@ -61,4 +62,5 @@
 - **検証**: 変更後は `task format`, `task lint`, `task test` がすべて成功することを確認する。
 - **テスト**: AAA（Arrange-Act-Assert）パターンで記述し、ネットワーク依存のテストにはフェイクまたはモックを用いる。
 - **スキル**: CLI のサブコマンドや出力仕様を変更したときは、[skills/crwl2md/SKILL.md](skills/crwl2md/SKILL.md) の記述も合わせて更新する。
+- **チェンジログ**: [CHANGELOG.md](CHANGELOG.md) は [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) 形式（英語）で管理する。利用者に影響する変更を加えたときは、`## [Unreleased]` 配下の該当セクション（`Added` / `Changed` / `Deprecated` / `Removed` / `Fixed` / `Security`）に簡潔な1行で追記する（リファクタリング・テスト・内部ドキュメントのみの変更は記載しない）。リリース時は `## [Unreleased]` の内容を `## [X.Y.Z] - YYYY-MM-DD` へ移し、末尾の比較・タグリンクを更新する。
 - **コミット**: Conventional Commits 形式（`<type>: <日本語の簡潔な概要>`）で署名付きとする。

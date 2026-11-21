@@ -1018,3 +1018,100 @@ def test_extract_markdown_strips_material_and_google_ligature_icon_fonts():
     ):
         assert glyph not in md
     assert "example.com/copy" not in md
+
+
+def test_extract_markdown_handles_microsoft_learn_chrome_and_alerts():
+    html = """
+    <html><head><title>XAML overview - Windows apps | Microsoft Learn</title></head><body>
+      <main id="main" role="main" class="layout-body-main" data-bi-name="content">
+        <div data-main-column="">
+          <div>
+            <div id="article-header" class="background-color-body margin-bottom-xs display-none-print">
+              <nav aria-label="Breadcrumb"><ol><li><a href="/">Learn</a></li></ol></nav>
+              <div id="article-header-page-actions">
+                <details class="language popover popover-right">
+                  <summary><span>C#</span></summary>
+                  <div class="language-selector popover-content">
+                    <ul><li><button type="button">C#</button></li><li><button type="button">C++/WinRT</button></li></ul>
+                  </div>
+                </details>
+                <details id="article-header-page-actions-overflow" class="popover popover-right">
+                  <summary aria-label="More actions"></summary>
+                  <div class="popover-content">
+                    <a href="https://github.com/MicrosoftDocs/windows-dev-docs/blob/main/xaml-overview.md">Edit</a>
+                    <hr>
+                  </div>
+                </details>
+              </div>
+            </div>
+            <div class="content"><h1>XAML overview</h1></div>
+            <div class="content">
+              <p>XAML is a declarative markup language.</p>
+              <div class="alert is-primary is-hidden moniker-display-boilerplate">
+                <p class="alert-title">Important</p>
+                <p>Prerelease notice.</p>
+              </div>
+              <div class="alert is-info">
+                <p class="alert-title"><span aria-hidden="true" class="icon"></span>Note</p>
+                <p>C# and C++/WinRT are supported.</p>
+              </div>
+              <div class="code-block-header" data-code-block-header="">
+                <details class="code-block-header-language language popover popover-left display-none-print">
+                  <summary><span>C#</span></summary>
+                  <div class="popover-content"><button type="button">C#</button></div>
+                </details>
+                <span class="code-block-header-language">C#</span>
+                <button type="button">Copy</button>
+              </div>
+              <pre data-language="csharp"><code>var x = 1;</code></pre>
+              <details>
+                <summary>Additional details</summary>
+                <p>Real collapsible content.</p>
+              </details>
+            </div>
+            <section class="feedback-section display-none-print" data-open-source-feedback-section="">
+              <p>Collaborate with us on GitHub</p>
+            </section>
+            <section id="site-user-feedback-footer" class="display-none-print">
+              <h2>Feedback</h2>
+              <p>Was this page helpful?</p>
+            </section>
+          </div>
+          <div id="ms--additional-resources-mobile" class="display-none-print">
+            <h2>Additional resources</h2>
+            <p>Training</p>
+          </div>
+          <div id="article-metadata-footer" class="page-metadata-container">
+            <hr>
+            <ul><li>Last updated on 07/27/2026</li></ul>
+          </div>
+        </div>
+      </main>
+    </body></html>
+    """
+    generic_article_header_html = """
+    <html><body><main>
+      <div id="article-header"><h1>Generic Article</h1></div>
+      <p>Body text.</p>
+    </main></body></html>
+    """
+
+    md = extract_markdown(html, url="https://learn.microsoft.com/en-us/windows/apps/xaml-overview")
+    generic_md = extract_markdown(generic_article_header_html)
+
+    assert md.startswith("# XAML overview\n\nXAML is a declarative markup language.")
+    assert "> **Note**\n>\n> C# and C++/WinRT are supported." in md
+    assert "```csharp\nvar x = 1;\n```" in md
+    assert "<details>\n<summary>Additional details</summary>\n\nReal collapsible content.\n\n</details>" in md
+    assert md.count("<details>") == 1
+    assert "\nC#\n\n```csharp" not in md
+    for noise in (
+        "Edit",
+        "Prerelease notice",
+        "Collaborate with us on GitHub",
+        "Was this page helpful?",
+        "Additional resources",
+        "Last updated on",
+    ):
+        assert noise not in md
+    assert generic_md == "# Generic Article\n\nBody text."

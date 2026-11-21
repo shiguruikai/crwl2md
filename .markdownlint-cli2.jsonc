@@ -1,6 +1,9 @@
 {
   "config": {
-    "MD013": false
+    "MD013": false,
+    "MD024": {
+      "siblings_only": true
+    }
   },
   "globs": ["**/*.md"],
   "ignores": [".venv/**", "**/.cache/**", ".pytest_cache/**", "output/**", "tmp/**", "node_modules/**"]
