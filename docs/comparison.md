@@ -24,7 +24,7 @@
 
 ## 2. フィクスチャを用いた定量比較
 
-[scripts/compare_methods.py](../scripts/compare_methods.py) により、3種類の代表 HTML（Docusaurus 技術ドキュメント、`<main>` なしの技術ブログ、定義リストと表を含む API リファレンス）で、`dom-markdownify` と Crawl4AI 標準の Markdown 変換（`<main>` があればその中だけを変換）を比較した。平均時間は、初回呼び出しを除いた20回の平均である。
+試作時のベンチマークスクリプトにより、3種類の代表 HTML（Docusaurus 技術ドキュメント、`<main>` なしの技術ブログ、定義リストと表を含む API リファレンス）で、`dom-markdownify` と Crawl4AI 標準の Markdown 変換（`<main>` があればその中だけを変換）を比較した。平均時間は、初回呼び出しを除いた20回の平均である。
 
 ### Docusaurus 技術ドキュメント（パンくず・サイドバー・TOC・編集リンク・コード言語タグ付き）
 

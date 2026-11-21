@@ -24,7 +24,6 @@
 
 - 定型操作は [Taskfile.yml](Taskfile.yml) に集約しており、`task <TASK>`（`setup`, `format`, `lint`, `test`）で実行する。
 - `crawl` が使う Chromium ブラウザは `uv run crwl2md setup` でダウンロードする（`task setup` に含まれる）。テストはブラウザを使わない。
-- 抽出結果と目次生成のベンチマークは [scripts/compare_methods.py](scripts/compare_methods.py) を `uv run python` で実行する。
 
 ## 構成
 
@@ -35,7 +34,7 @@
 - [src/crwl2md/crawler.py](src/crwl2md/crawler.py): 単一ページ変換（`convert_single`, `convert_single_sync`）および Crawl4AI によるサイトクロール（`crawl_site`, `crawl_site_sync`）
 - [src/crwl2md/cli.py](src/crwl2md/cli.py): `crwl2md` CLI エントリポイント
 - [skills/crwl2md/SKILL.md](skills/crwl2md/SKILL.md): AI エージェント向けの CLI 利用スキル
-- [docs/comparison.md](docs/comparison.md): 各変換手法・目次生成手法の検証結果
+- [docs/comparison.md](docs/comparison.md): 試作時の各変換手法・目次生成手法の検証結果
 - [docs/crawl4ai.md](docs/crawl4ai.md): Crawl4AI の不具合・仕様と crwl2md 側の対処 ※バージョン更新時に再確認する
 - [docs/release.md](docs/release.md): リリース手順
 - [CHANGELOG.md](CHANGELOG.md): 変更履歴

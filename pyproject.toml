@@ -51,7 +51,7 @@ requires = ["uv_build>=0.13.8,<0.14"]
 build-backend = "uv_build"
 
 [tool.pyright]
-include = ["src", "tests", "scripts"]
+include = ["src", "tests"]
 venvPath = "."
 venv = ".venv"
 pythonVersion = "3.13"
@@ -65,7 +65,7 @@ asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 line-length = 120
-src = ["src", "tests", "scripts"]
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
