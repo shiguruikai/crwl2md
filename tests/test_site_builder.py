@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -93,6 +94,29 @@ def test_compute_relative_paths_drops_trailing_dots_that_windows_would_strip():
         "https://example.com/docs/v1./intro": "v1/intro.md",
         "https://example.com/docs/v2/notes.": "v2/notes.md",
     }
+
+
+def test_compute_relative_paths_avoids_windows_reserved_device_names(tmp_path: Path):
+    urls = [
+        "https://example.com/docs/con",
+        "https://example.com/docs/AUX/intro",
+        "https://example.com/docs/nul.v1",
+        "https://example.com/docs/console",
+    ]
+
+    mapping = compute_relative_paths(urls, "https://example.com/docs/")
+
+    assert mapping == {
+        "https://example.com/docs/con": "con_.md",
+        "https://example.com/docs/AUX/intro": "AUX_/intro.md",
+        "https://example.com/docs/nul.v1": "nul_.v1.md",
+        "https://example.com/docs/console": "console.md",
+    }
+    for relpath in mapping.values():
+        dest = tmp_path / relpath
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text("# ok\n", encoding="utf-8")
+        assert dest.is_file()
 
 
 def test_compute_relative_paths_separates_paths_that_differ_only_by_case():

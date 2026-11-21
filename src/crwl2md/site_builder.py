@@ -21,6 +21,8 @@ _FRONTMATTER_FIELD_SET = frozenset(FRONTMATTER_FIELDS)
 
 # Includes "/" because a percent-decoded segment ("a%2Fb") must stay a single path component.
 _UNSAFE_SEGMENT_RE = re.compile(r'[<>:"|?*\x00-\x1f\\/]')
+# Windows forbids these device names as file or directory stems, even with extensions (e.g. "aux.v1.md").
+_WINDOWS_RESERVED_NAME_RE = re.compile(r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.IGNORECASE)
 # Characters that are legal in file names but would end or alter a Markdown link destination.
 _LINK_TARGET_UNSAFE_RE = re.compile(r"[\s%#()]")
 # The destination may contain one level of balanced parentheses, as in `/wiki/Python_(language)`.
@@ -74,7 +76,11 @@ def normalize_url_key(url: str) -> str:
 
 def _sanitize_segment(segment: str) -> str:
     # Trailing dots and spaces are dropped because Windows silently removes them; this also neutralizes "." and "..".
-    return _UNSAFE_SEGMENT_RE.sub("_", segment).strip().rstrip(". ") or "page"
+    cleaned = _UNSAFE_SEGMENT_RE.sub("_", segment).strip().rstrip(". ") or "page"
+    stem, dot, rest = cleaned.partition(".")
+    if _WINDOWS_RESERVED_NAME_RE.match(stem):
+        return f"{stem}_{dot}{rest}"
+    return cleaned
 
 
 def _strip_doc_extension(name: str) -> str:
