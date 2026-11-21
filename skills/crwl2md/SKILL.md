@@ -1,6 +1,7 @@
 ---
 name: crwl2md
 description: Converts web pages or local HTML files to Markdown and crawls documentation sites into offline Markdown copies with index.md tables of contents using the crwl2md CLI. Use when saving online documentation locally, fetching multi-page docs, or converting HTML files to Markdown.
+license: MIT
 ---
 
 # crwl2md
