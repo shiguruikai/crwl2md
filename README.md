@@ -40,6 +40,20 @@ uv tool install .
 - Re-run `crwl2md setup` after upgrading (for example, `uv tool upgrade crwl2md`). Playwright requires a specific Chromium build per release.
 - If `crwl2md` is not found on your `PATH` or Linux OS libraries are missing, see [Troubleshooting](#troubleshooting).
 
+### Agent Skill
+
+An [Agent Skill](https://agentskills.io/) for AI coding agents is available in [skills/crwl2md/SKILL.md](https://github.com/shiguruikai/crwl2md/blob/HEAD/skills/crwl2md/SKILL.md):
+
+```bash
+# GitHub CLI
+gh skill install shiguruikai/crwl2md crwl2md
+
+# skills CLI
+npx skills add shiguruikai/crwl2md
+```
+
+Pass `--scope user` (`gh skill`) or `-g` (`npx skills`) to install globally instead of in the current project.
+
 ## Usage
 
 When running from a locally cloned repository without a global install, invoke the CLI with `uv run crwl2md`.

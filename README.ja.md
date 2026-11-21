@@ -40,6 +40,20 @@ uv tool install .
 - `uv tool upgrade crwl2md` などで更新したあとも `crwl2md setup` を実行してください。Playwright はバージョンごとに決まった Chromium ビルドを必要とします。
 - `crwl2md` コマンドが見つからない場合や Linux で OS の共有ライブラリが不足する場合は、[トラブルシューティング](#トラブルシューティング)を参照してください。
 
+### エージェントスキル
+
+AI コーディングエージェント向けの [Agent Skill](https://agentskills.io/) を [skills/crwl2md/SKILL.md](skills/crwl2md/SKILL.md) で提供しています。
+
+```bash
+# GitHub CLI
+gh skill install shiguruikai/crwl2md crwl2md
+
+# skills CLI
+npx skills add shiguruikai/crwl2md
+```
+
+プロジェクト単位ではなくグローバルにインストールする場合は、`gh skill` では `--scope user`、`npx skills` では `-g` を付けてください。
+
 ## 使い方
 
 ローカルにクローンしたリポジトリからグローバルインストールせずに実行する場合は、`uv run crwl2md` を使用してください。
