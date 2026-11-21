@@ -124,7 +124,10 @@ def _add_browser_options(subparser: argparse.ArgumentParser) -> None:
         type=_greater_than(0.0),
         default=None,
         metavar="SECONDS",
-        help="Seconds to wait for --wait-for before timing out (default: 15 when --wait-for is set, 5 otherwise).",
+        help=(
+            "Seconds to wait before HTML extraction times out, including the built-in content-ready wait "
+            "(default: 15 when --wait-for is set, 5 otherwise)."
+        ),
     )
     subparser.add_argument(
         "--scan-full-page",
