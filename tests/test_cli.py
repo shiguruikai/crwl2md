@@ -424,3 +424,10 @@ def test_importing_package_and_cli_defers_heavy_crawler_dependencies():
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
 
     assert result.returncode == 0, result.stderr
+
+
+def test_python_m_crwl2md_runs_cli():
+    result = subprocess.run([sys.executable, "-m", "crwl2md", "--version"], capture_output=True, text=True, check=False)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"crwl2md {crwl2md.__version__}"
