@@ -1,6 +1,6 @@
 [project]
 name = "crwl2md"
-version = "0.1.0"
+version = "0.2.0"
 description = "CLI tool to crawl websites and convert pages into Markdown files"
 readme = "README.md"
 requires-python = ">=3.13"

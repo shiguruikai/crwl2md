@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-24
+
 ### Changed
 
 - Flatten open Shadow DOM trees automatically by default; keep `--flatten-shadow-dom` / `flatten_shadow_dom=True` to also expose and flatten closed Shadow DOM trees.
@@ -32,5 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Public Python API (`extract_markdown`, `convert_single`, `convert_single_sync`, `crawl_site`, `crawl_site_sync`, `CrawlConfig`, `CrawlSummary`, `install_browser`, `BrowserNotInstalledError`).
 - Agent Skill for AI coding agents in `skills/crwl2md/SKILL.md`.
 
-[unreleased]: https://github.com/shiguruikai/crwl2md/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/shiguruikai/crwl2md/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/shiguruikai/crwl2md/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/shiguruikai/crwl2md/releases/tag/v0.1.0
