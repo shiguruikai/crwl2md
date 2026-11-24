@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import re
 import sys
+import warnings
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -301,11 +302,31 @@ def _format_unfetched_warning(summary: CrawlSummary, config: CrawlConfig) -> str
     return f"Warning: {count} in-scope {noun} not fetched{reason}." + (f" {hint}" if hint else "")
 
 
+# Crawl4AI 0.9.6 has `return` inside `finally` in unused `fetch_image_file_size`
+# (`crawl4ai/content_scraping_strategy.py`), emitting a SyntaxWarning on Python 3.14+
+# during initial bytecode compilation. CPython passes the `.py`-stripped file path as
+# `module` for compile-time SyntaxWarnings.
+_CRAWL4AI_SYNTAX_WARNING_MESSAGE = r"^'return' in a 'finally' block$"
+_CRAWL4AI_SYNTAX_WARNING_MODULE = r".*crawl4ai[/\\]content_scraping_strategy$"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the `crwl2md` CLI entrypoint and return a process exit code."""
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=_CRAWL4AI_SYNTAX_WARNING_MESSAGE,
+            category=SyntaxWarning,
+            module=_CRAWL4AI_SYNTAX_WARNING_MODULE,
+            append=True,
+        )
+        return _run_command(parser, args)
+
+
+def _run_command(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     try:
         if args.command == "setup":
             install_browser(with_deps=args.with_deps)

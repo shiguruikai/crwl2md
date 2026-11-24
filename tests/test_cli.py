@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -431,3 +432,31 @@ def test_python_m_crwl2md_runs_cli():
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == f"crwl2md {crwl2md.__version__}"
+
+
+def test_cli_suppresses_known_crawl4ai_syntax_warning_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    crawl4ai_file = tmp_path / "crawl4ai" / "content_scraping_strategy.py"
+    other_file = tmp_path / "other_pkg" / "sample.py"
+    source = "def f():\n    try:\n        return 1\n    finally:\n        return\n"
+
+    async def fake_convert_single(_source: object, **_kwargs: object) -> str:
+        warnings.warn_explicit("'return' in a 'finally' block", SyntaxWarning, str(crawl4ai_file), 1)
+        warnings.warn_explicit("'return' in a 'finally' block", SyntaxWarning, str(other_file), 1)
+        if sys.version_info >= (3, 14):
+            compile(source, str(crawl4ai_file), "exec")
+            compile(source, str(other_file), "exec")
+        return "# Title\n"
+
+    monkeypatch.setattr("crwl2md.cli.convert_single", fake_convert_single)
+    out_file = tmp_path / "out.md"
+
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.resetwarnings()
+        exit_code = main(["convert", "https://example.com/", "-o", str(out_file)])
+        filters_after = list(warnings.filters)
+
+    assert exit_code == 0
+    assert filters_after == []
+    expected_count = 2 if sys.version_info >= (3, 14) else 1
+    assert len(recorded) == expected_count
+    assert all(Path(w.filename) == other_file for w in recorded)

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fix `--flatten-shadow-dom` corrupting HTML tag literals and `<`, `>`, `&` characters in text and code blocks due to unescaped text-node serialization in Crawl4AI.
 - Strip Microsoft Learn header action bars, popover menus, code block headers, hidden boilerplate, and feedback footers, and convert `.alert` callouts to blockquotes.
+- Suppress Crawl4AI's compile-time `SyntaxWarning` (`'return' in a 'finally' block` in `crawl4ai/content_scraping_strategy.py`) on Python 3.14+ during CLI execution.
 
 ### Security
 
