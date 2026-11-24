@@ -81,7 +81,7 @@ _FORCE_OPEN_SHADOW_DOM_JS = (
     "})();"
 )
 
-# Work around Crawl4AI 0.9.5's `flatten_shadow_dom.js`, which emits `node.textContent` without
+# Work around Crawl4AI 0.9.6's `flatten_shadow_dom.js`, which emits `node.textContent` without
 # HTML-escaping `&`, `<`, and `>` (corrupting HTML/XML examples and generics in prose and code blocks)
 # and re-serializes documents even when no shadow roots exist.
 _FLATTEN_SHADOW_DOM_JS = (
@@ -804,7 +804,7 @@ def _link_following_bfs_strategy_cls() -> Any:
     from crawl4ai.utils import normalize_url_for_deep_crawl
 
     class _LinkFollowingBFSStrategy(BFSDeepCrawlStrategy):
-        """BFS strategy fixing Crawl4AI 0.9.5 traversal quirks and streaming per-page completion callbacks."""
+        """BFS strategy fixing Crawl4AI 0.9.6 traversal quirks and streaming per-page completion callbacks."""
 
         def __init__(
             self,
@@ -978,7 +978,7 @@ def _shadow_dom_crawler_strategy_cls() -> Any:
     from crawl4ai.async_crawler_strategy import AsyncPlaywrightCrawlerStrategy
 
     class _ShadowDomCrawlerStrategy(AsyncPlaywrightCrawlerStrategy):
-        """Playwright strategy that flattens open Shadow DOM by default and replaces Crawl4AI 0.9.5's unescaped serializer."""
+        """Playwright strategy that flattens open Shadow DOM by default and replaces Crawl4AI 0.9.6's unescaped serializer."""
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
