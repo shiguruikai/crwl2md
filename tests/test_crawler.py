@@ -1411,17 +1411,18 @@ async def test_shadow_dom_strategy_replaces_crawl4ai_serializer_and_escapes_clea
             "https://example.com/shadow": "<!DOCTYPE html><html><body><code>&lt;button&gt;</code></body></html>",
             "https://example.com/plain": None,
             "https://example.com/error": RuntimeError("detached frame"),
+            "https://example.com/open-default": "<!DOCTYPE html><html><body><p>open</p></body></html>",
         }
     )
     strategy = _shadow_dom_crawler_strategy_cls()(browser_config=BrowserConfig(), browser_adapter=adapter)
     flat_cfg = CrawlerRunConfig(flatten_shadow_dom=True)
-    off_cfg = CrawlerRunConfig(flatten_shadow_dom=False)
+    default_cfg = CrawlerRunConfig(flatten_shadow_dom=False)
 
-    res_shadow, res_plain, res_error, res_off = await asyncio.gather(
+    res_shadow, res_plain, res_error, res_open_default = await asyncio.gather(
         strategy.crawl("https://example.com/shadow", config=flat_cfg),
         strategy.crawl("https://example.com/plain", config=flat_cfg),
         strategy.crawl("https://example.com/error", config=flat_cfg),
-        strategy.crawl("https://example.com/off", config=off_cfg),
+        strategy.crawl("https://example.com/open-default", config=default_cfg),
     )
 
     assert all(cfg.flatten_shadow_dom is False for cfg in seen_configs)
@@ -1429,12 +1430,45 @@ async def test_shadow_dom_strategy_replaces_crawl4ai_serializer_and_escapes_clea
     assert res_shadow.html == "<!DOCTYPE html><html><body><code>&lt;button&gt;</code></body></html>"
     assert res_plain.html == "<raw>https://example.com/plain</raw>"
     assert res_error.html == "<raw>https://example.com/error</raw>"
-    assert res_off.html == "<raw>https://example.com/off</raw>"
+    assert res_open_default.html == "<!DOCTYPE html><html><body><p>open</p></body></html>"
     assert sorted(page for page, expr in adapter.calls if expr == _FLATTEN_SHADOW_DOM_JS) == [
         "https://example.com/error",
+        "https://example.com/open-default",
         "https://example.com/plain",
         "https://example.com/shadow",
     ]
+
+
+async def test_shadow_dom_strategy_does_not_patch_attach_shadow_by_default(monkeypatch: pytest.MonkeyPatch):
+    from crawl4ai import BrowserConfig, CrawlerRunConfig
+    from crawl4ai.async_crawler_strategy import AsyncPlaywrightCrawlerStrategy
+    from crawl4ai.models import AsyncCrawlResponse
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self.init_scripts: list[str] = []
+
+        async def add_init_script(self, script: str) -> None:
+            self.init_scripts.append(script)
+
+    class FakeAdapter:
+        async def evaluate(self, _page: Any, _expression: str, _arg: Any = None) -> Any:
+            return "<!DOCTYPE html><html><body><p>from open shadow</p></body></html>"
+
+    context = FakeContext()
+
+    async def fake_super_crawl(self: Any, url: str, config: Any = None, **_kwargs: Any) -> AsyncCrawlResponse:
+        await self.execute_hook("on_page_context_created", url, context=context, config=config)
+        await self.execute_hook("before_return_html", page=url, html="<raw/>", context=context, config=config)
+        return AsyncCrawlResponse(html="<raw/>", response_headers={}, status_code=200)
+
+    monkeypatch.setattr(AsyncPlaywrightCrawlerStrategy, "crawl", fake_super_crawl)
+    strategy = _shadow_dom_crawler_strategy_cls()(browser_config=BrowserConfig(), browser_adapter=FakeAdapter())
+
+    response = await strategy.crawl("https://example.com/open", config=CrawlerRunConfig(flatten_shadow_dom=False))
+
+    assert context.init_scripts == []
+    assert response.html == "<!DOCTYPE html><html><body><p>from open shadow</p></body></html>"
 
 
 def test_create_browser_crawler_wires_shadow_dom_strategy_and_shared_logger():

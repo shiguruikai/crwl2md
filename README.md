@@ -181,7 +181,7 @@ These options are available for both `convert` and `crawl`.
 | `--wait-for <CONDITION>` | — | CSS selector or `js:() => ...` condition to wait for before extracting HTML. |
 | `--wait-for-timeout <SECONDS>` | `15` (with `--wait-for`) / `5` (otherwise) | Seconds to wait before HTML extraction times out (`> 0`). Also applies to the built-in content-ready wait when `--wait-for` is omitted. |
 | `--scan-full-page` | — | Scroll from top to bottom before extracting HTML so lazy-loaded content renders. |
-| `--flatten-shadow-dom` | — | Inline open and closed Shadow DOM trees into the HTML before conversion. |
+| `--flatten-shadow-dom` | — | Also force-open and inline closed Shadow DOM trees before conversion (open Shadow DOM is flattened by default). |
 
 #### Frontmatter
 
@@ -352,7 +352,7 @@ By default, `crwl2md` waits up to 5 seconds for main content text to render. If 
 
 - Waiting for a specific element or JS condition: `--wait-for "CSS selector"` or `--wait-for "js:() => ..."` (raise `--wait-for-timeout` if needed)
 - Rendering lazy-loaded sections by scrolling: `--scan-full-page`
-- Extracting content inside Web Components: `--flatten-shadow-dom`
+- Extracting content inside closed Web Components (Shadow DOM): `--flatten-shadow-dom` (open Shadow DOM is flattened by default)
 
 ### Warning that in-scope links were not fetched
 

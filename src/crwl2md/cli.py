@@ -137,7 +137,7 @@ def _add_browser_options(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument(
         "--flatten-shadow-dom",
         action="store_true",
-        help="Inline open and closed Shadow DOM trees into the HTML before conversion.",
+        help="Also force-open and inline closed Shadow DOM trees (open Shadow DOM is flattened by default).",
     )
 
 

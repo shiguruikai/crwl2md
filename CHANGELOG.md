@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Flatten open Shadow DOM trees automatically by default; keep `--flatten-shadow-dom` / `flatten_shadow_dom=True` to also expose and flatten closed Shadow DOM trees.
+
 ### Fixed
 
 - Fix `--flatten-shadow-dom` corrupting HTML tag literals and `<`, `>`, `&` characters in text and code blocks due to unescaped text-node serialization in Crawl4AI.

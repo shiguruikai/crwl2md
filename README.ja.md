@@ -181,7 +181,7 @@ crwl2md crawl <url> -o <DIR> [オプション]
 | `--wait-for <CONDITION>` | — | HTML 抽出前に待機する条件（CSS セレクターまたは `js:() => ...`）。 |
 | `--wait-for-timeout <SECONDS>` | `15`（`--wait-for` 指定時）／`5`（未指定時） | HTML 抽出前の待機タイムアウト秒数（0より大きい値）。`--wait-for` 未指定時も、本文テキストの描画を待つ組み込み判定に適用される。 |
 | `--scan-full-page` | — | HTML 抽出前にページ先頭から末尾までスクロールし、遅延読み込みコンテンツを描画させる。 |
-| `--flatten-shadow-dom` | — | 変換前に open・closed の Shadow DOM ツリーを HTML へ展開する。 |
+| `--flatten-shadow-dom` | — | closed の Shadow DOM ツリーも強制的に開いて展開する（open Shadow DOM は既定で展開される）。 |
 
 #### フロントマター
 
@@ -352,7 +352,7 @@ crwl2md crawl https://example.com/docs/ -o ./output/docs --delay 2 --concurrency
 
 - 特定要素の出現を待つ：`--wait-for "CSSセレクター"` または `--wait-for "js:() => ..."`（必要に応じて `--wait-for-timeout` で秒数を延長）
 - スクロールしないと読み込まれないコンテンツがある：`--scan-full-page`
-- Web Components（Shadow DOM）内に本文がある：`--flatten-shadow-dom`
+- closed な Web Components（Shadow DOM）内に本文がある：`--flatten-shadow-dom`（open Shadow DOM は既定で展開されます）
 
 ### 未取得リンクが残る警告が出る
 

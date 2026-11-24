@@ -978,7 +978,7 @@ def _shadow_dom_crawler_strategy_cls() -> Any:
     from crawl4ai.async_crawler_strategy import AsyncPlaywrightCrawlerStrategy
 
     class _ShadowDomCrawlerStrategy(AsyncPlaywrightCrawlerStrategy):
-        """Playwright strategy that replaces Crawl4AI 0.9.5's unescaped Shadow DOM serializer."""
+        """Playwright strategy that flattens open Shadow DOM by default and replaces Crawl4AI 0.9.5's unescaped serializer."""
 
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
@@ -1008,15 +1008,13 @@ def _shadow_dom_crawler_strategy_cls() -> Any:
             return page
 
         async def crawl(self, url: str, config: Any, **kwargs: Any) -> Any:
-            if not getattr(config, "flatten_shadow_dom", False):
-                return await super().crawl(url, config=config, **kwargs)
-
-            cloned_config = config.clone(flatten_shadow_dom=False)
+            force_open_closed = bool(getattr(config, "flatten_shadow_dom", False))
+            effective_config = config.clone(flatten_shadow_dom=False) if force_open_closed else config
             slot: list[str | None] = [None]
             html_token = _SHADOW_HTML_SLOT.set(slot)
-            open_token = _FORCE_OPEN_SHADOW_DOM.set(True)
+            open_token = _FORCE_OPEN_SHADOW_DOM.set(force_open_closed)
             try:
-                response = await super().crawl(url, config=cloned_config, **kwargs)
+                response = await super().crawl(url, config=effective_config, **kwargs)
             finally:
                 _SHADOW_HTML_SLOT.reset(html_token)
                 _FORCE_OPEN_SHADOW_DOM.reset(open_token)
