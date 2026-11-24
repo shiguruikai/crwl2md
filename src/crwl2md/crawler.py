@@ -8,6 +8,7 @@ import subprocess
 import sys
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cache
@@ -67,6 +68,74 @@ _CONTENT_READY_JS = (
 )
 _CONTENT_WAIT_TIMEOUT_MS = 5000
 _CUSTOM_WAIT_TIMEOUT_MS = 15000
+
+# Idempotent init script to expose closed shadow roots when `--flatten-shadow-dom` is enabled.
+_FORCE_OPEN_SHADOW_DOM_JS = (
+    "(() => {"
+    " if (Element.prototype.__crwl2mdAttachShadowPatched) return;"
+    " Element.prototype.__crwl2mdAttachShadowPatched = true;"
+    " const orig = Element.prototype.attachShadow;"
+    " Element.prototype.attachShadow = function(init) {"
+    "  return orig.call(this, { ...init, mode: 'open' });"
+    " };"
+    "})();"
+)
+
+# Work around Crawl4AI 0.9.5's `flatten_shadow_dom.js`, which emits `node.textContent` without
+# HTML-escaping `&`, `<`, and `>` (corrupting HTML/XML examples and generics in prose and code blocks)
+# and re-serializes documents even when no shadow roots exist.
+_FLATTEN_SHADOW_DOM_JS = (
+    "(() => {"
+    " if (!document.documentElement) return null;"
+    " let hasShadow = false;"
+    " for (const el of document.querySelectorAll('*')) {"
+    "  if (el.shadowRoot) { hasShadow = true; break; }"
+    " }"
+    " if (!hasShadow) return null;"
+    " const HTML_NS = 'http://www.w3.org/1999/xhtml';"
+    " const VOID = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);"
+    " const RAWTEXT = new Set(['script','style','xmp','iframe','noembed','noframes','plaintext']);"
+    " const escText = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');"
+    " const escAttr = (s) => s.replace(/&/g, '&amp;').replace(/\"/g, '&quot;');"
+    " const parts = [];"
+    " if (document.doctype) parts.push('<!DOCTYPE ' + document.doctype.name + '>');"
+    " const serialize = (node, inShadow, rawText) => {"
+    "  if (node.nodeType === Node.TEXT_NODE) {"
+    "   const val = node.nodeValue || '';"
+    "   parts.push(rawText ? val : escText(val));"
+    "   return;"
+    "  }"
+    "  if (node.nodeType !== Node.ELEMENT_NODE) return;"
+    "  const tag = node.localName;"
+    "  if (inShadow && (tag === 'style' || tag === 'script')) return;"
+    "  if (inShadow && tag === 'slot') {"
+    "   const assigned = node.assignedNodes({ flatten: true });"
+    "   if (assigned.length > 0) {"
+    "    for (const a of assigned) serialize(a, a.getRootNode() instanceof ShadowRoot, false);"
+    "    return;"
+    "   }"
+    "   for (const child of node.childNodes) serialize(child, true, false);"
+    "   return;"
+    "  }"
+    "  parts.push('<', tag);"
+    "  for (const a of node.attributes || []) parts.push(' ', a.name, '=\"', escAttr(a.value), '\"');"
+    "  parts.push('>');"
+    "  if (node.namespaceURI === HTML_NS && VOID.has(tag)) return;"
+    "  const childRaw = node.namespaceURI === HTML_NS && RAWTEXT.has(tag);"
+    "  if (node.shadowRoot) {"
+    "   for (const child of node.shadowRoot.childNodes) serialize(child, true, false);"
+    "  } else {"
+    "   for (const child of node.childNodes) serialize(child, inShadow, childRaw);"
+    "  }"
+    "  parts.push('</', tag, '>');"
+    " };"
+    " serialize(document.documentElement, false, false);"
+    " return parts.join('');"
+    "})()"
+)
+
+_SHADOW_HTML_SLOT: ContextVar[list[str | None] | None] = ContextVar("_crwl2md_shadow_html_slot", default=None)
+_FORCE_OPEN_SHADOW_DOM: ContextVar[bool] = ContextVar("_crwl2md_force_open_shadow_dom", default=False)
 
 
 def validate_http_url(url: str) -> str:
@@ -904,10 +973,69 @@ async def _get_desktop_chrome_user_agent() -> str:
     return _DESKTOP_CHROME_UA
 
 
+@cache
+def _shadow_dom_crawler_strategy_cls() -> Any:
+    from crawl4ai.async_crawler_strategy import AsyncPlaywrightCrawlerStrategy
+
+    class _ShadowDomCrawlerStrategy(AsyncPlaywrightCrawlerStrategy):
+        """Playwright strategy that replaces Crawl4AI 0.9.5's unescaped Shadow DOM serializer."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.set_hook("on_page_context_created", self._inject_closed_shadow_patch)
+            self.set_hook("before_return_html", self._capture_flattened_shadow_html)
+
+        async def _inject_closed_shadow_patch(self, page: Any, *, context: Any = None, **_kwargs: Any) -> Any:
+            if (
+                _FORCE_OPEN_SHADOW_DOM.get()
+                and context is not None
+                and not getattr(context, "_crwl2md_shadow_dom_injected", False)
+            ):
+                await context.add_init_script(_FORCE_OPEN_SHADOW_DOM_JS)
+                context._crwl2md_shadow_dom_injected = True
+            return page
+
+        async def _capture_flattened_shadow_html(self, page: Any, **_kwargs: Any) -> Any:
+            slot = _SHADOW_HTML_SLOT.get()
+            if slot is None:
+                return page
+            try:
+                flattened = await self.adapter.evaluate(page, _FLATTEN_SHADOW_DOM_JS)
+            except Exception:
+                return page
+            if isinstance(flattened, str) and flattened:
+                slot[0] = flattened
+            return page
+
+        async def crawl(self, url: str, config: Any, **kwargs: Any) -> Any:
+            if not getattr(config, "flatten_shadow_dom", False):
+                return await super().crawl(url, config=config, **kwargs)
+
+            cloned_config = config.clone(flatten_shadow_dom=False)
+            slot: list[str | None] = [None]
+            html_token = _SHADOW_HTML_SLOT.set(slot)
+            open_token = _FORCE_OPEN_SHADOW_DOM.set(True)
+            try:
+                response = await super().crawl(url, config=cloned_config, **kwargs)
+            finally:
+                _SHADOW_HTML_SLOT.reset(html_token)
+                _FORCE_OPEN_SHADOW_DOM.reset(open_token)
+
+            if slot[0] is not None:
+                response.html = slot[0]
+            return response
+
+    return _ShadowDomCrawlerStrategy
+
+
 def _create_browser_crawler(browser_config: BrowserConfig) -> Any:
     from crawl4ai import AsyncWebCrawler
 
-    return AsyncWebCrawler(config=browser_config)
+    strategy = _shadow_dom_crawler_strategy_cls()(browser_config=browser_config)
+    crawler = AsyncWebCrawler(config=browser_config, crawler_strategy=strategy)
+    strategy.logger = crawler.logger
+    strategy.browser_manager.logger = crawler.logger
+    return crawler
 
 
 @dataclass

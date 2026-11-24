@@ -22,8 +22,12 @@ from crwl2md import (
     install_browser,
 )
 from crwl2md.crawler import (
+    _FLATTEN_SHADOW_DOM_JS,
+    _FORCE_OPEN_SHADOW_DOM_JS,
+    _create_browser_crawler,
     _link_following_bfs_strategy_cls,
     _resolve_output_path,
+    _shadow_dom_crawler_strategy_cls,
     build_filter_chain,
     compile_url_pattern,
     describe_crawl_scope,
@@ -1360,3 +1364,84 @@ async def test_convert_single_rejects_blank_wait_for(tmp_path: Path):
         await convert_single(str(html_file), wait_for="   ")
     with pytest.raises(ValueError, match="wait_for_timeout must be greater than 0"):
         await convert_single(str(html_file), wait_for_timeout=0)
+
+
+async def test_shadow_dom_strategy_replaces_crawl4ai_serializer_and_escapes_cleanly(monkeypatch: pytest.MonkeyPatch):
+    import asyncio
+
+    from crawl4ai import BrowserConfig, CrawlerRunConfig
+    from crawl4ai.async_crawler_strategy import AsyncPlaywrightCrawlerStrategy
+    from crawl4ai.models import AsyncCrawlResponse
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self.init_scripts: list[str] = []
+
+        async def add_init_script(self, script: str) -> None:
+            self.init_scripts.append(script)
+
+    class FakeAdapter:
+        def __init__(self, responses: dict[str, Any]) -> None:
+            self.responses = responses
+            self.calls: list[tuple[str, str]] = []
+
+        async def evaluate(self, page: Any, expression: str, _arg: Any = None) -> Any:
+            self.calls.append((page, expression))
+            outcome = self.responses[page]
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    seen_configs: list[CrawlerRunConfig] = []
+    shared_context = FakeContext()
+
+    async def fake_super_crawl(self: Any, url: str, config: Any = None, **_kwargs: Any) -> AsyncCrawlResponse:
+        seen_configs.append(config)
+        await self.execute_hook("on_page_context_created", url, context=shared_context, config=config)
+        # Interleave concurrent tasks to verify ContextVar isolation across simultaneous crawls.
+        await asyncio.sleep(0)
+        await self.execute_hook(
+            "before_return_html", page=url, html=f"<raw>{url}</raw>", context=shared_context, config=config
+        )
+        return AsyncCrawlResponse(html=f"<raw>{url}</raw>", response_headers={}, status_code=200)
+
+    monkeypatch.setattr(AsyncPlaywrightCrawlerStrategy, "crawl", fake_super_crawl)
+    adapter = FakeAdapter(
+        {
+            "https://example.com/shadow": "<!DOCTYPE html><html><body><code>&lt;button&gt;</code></body></html>",
+            "https://example.com/plain": None,
+            "https://example.com/error": RuntimeError("detached frame"),
+        }
+    )
+    strategy = _shadow_dom_crawler_strategy_cls()(browser_config=BrowserConfig(), browser_adapter=adapter)
+    flat_cfg = CrawlerRunConfig(flatten_shadow_dom=True)
+    off_cfg = CrawlerRunConfig(flatten_shadow_dom=False)
+
+    res_shadow, res_plain, res_error, res_off = await asyncio.gather(
+        strategy.crawl("https://example.com/shadow", config=flat_cfg),
+        strategy.crawl("https://example.com/plain", config=flat_cfg),
+        strategy.crawl("https://example.com/error", config=flat_cfg),
+        strategy.crawl("https://example.com/off", config=off_cfg),
+    )
+
+    assert all(cfg.flatten_shadow_dom is False for cfg in seen_configs)
+    assert shared_context.init_scripts == [_FORCE_OPEN_SHADOW_DOM_JS]
+    assert res_shadow.html == "<!DOCTYPE html><html><body><code>&lt;button&gt;</code></body></html>"
+    assert res_plain.html == "<raw>https://example.com/plain</raw>"
+    assert res_error.html == "<raw>https://example.com/error</raw>"
+    assert res_off.html == "<raw>https://example.com/off</raw>"
+    assert sorted(page for page, expr in adapter.calls if expr == _FLATTEN_SHADOW_DOM_JS) == [
+        "https://example.com/error",
+        "https://example.com/plain",
+        "https://example.com/shadow",
+    ]
+
+
+def test_create_browser_crawler_wires_shadow_dom_strategy_and_shared_logger():
+    from crawl4ai import BrowserConfig
+
+    crawler = _create_browser_crawler(BrowserConfig(verbose=False))
+
+    assert isinstance(crawler.crawler_strategy, _shadow_dom_crawler_strategy_cls())
+    assert crawler.crawler_strategy.logger is crawler.logger
+    assert crawler.crawler_strategy.browser_manager.logger is crawler.logger

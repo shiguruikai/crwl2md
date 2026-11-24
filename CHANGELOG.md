@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fix `--flatten-shadow-dom` corrupting HTML tag literals and `<`, `>`, `&` characters in text and code blocks due to unescaped text-node serialization in Crawl4AI.
 - Strip Microsoft Learn header action bars, popover menus, code block headers, hidden boilerplate, and feedback footers, and convert `.alert` callouts to blockquotes.
 
 ## [0.1.0] - 2026-11-21
