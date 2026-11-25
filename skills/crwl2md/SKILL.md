@@ -1,6 +1,6 @@
 ---
 name: crwl2md
-description: Converts web pages or local HTML files to Markdown and crawls documentation sites into offline Markdown copies with index.md tables of contents using the crwl2md CLI. Use when saving online documentation locally, fetching multi-page docs, or converting HTML files to Markdown.
+description: Convert web pages or local HTML files to Markdown, or crawl a website into local Markdown files with index.md tables of contents using the crwl2md CLI.
 license: MIT
 ---
 
@@ -10,7 +10,7 @@ license: MIT
 
 - Check availability with `crwl2md --version`. Inside the `crwl2md` repository, run it via `uv run crwl2md`.
 - If `crwl2md` is not installed, ask the user before installing it globally with `uv tool install crwl2md`.
-- Fetching `http://` or `https://` URLs requires Playwright's Chromium browser (`crwl2md setup`).
+- Fetching `http://` or `https://` URLs uses Playwright's Chromium browser. Only run `crwl2md setup` if `convert` or `crawl` reports a missing browser or version mismatch (on Linux with missing OS libraries, ask the user to run `crwl2md setup --with-deps`, which may prompt for `sudo`).
 - Local HTML files (`convert <path>` or `file://`) are read directly without a browser (JavaScript is not executed).
 
 ## Commands
@@ -21,7 +21,7 @@ license: MIT
 
 ## Detailed Usage and Options
 
-Do not guess CLI flags or defaults. Run the built-in help commands to check detailed usage and all available options (such as crawl scope, page limits, rate limiting, browser rendering, authentication, and frontmatter):
+Do not guess CLI flags or defaults. Check built-in help when needed:
 
 ```bash
 crwl2md --help
@@ -30,11 +30,29 @@ crwl2md convert --help
 crwl2md crawl --help
 ```
 
+Key behaviors not obvious from `--help`:
+
+- **Page limit**: `--max-pages` defaults to `100`. Raise it for larger sites or narrow the scope.
+- **Scope patterns (`--include` / `--exclude`)**: Quote patterns for the shell. Globs use `*` (single segment) and `**` (multi-segment); regex requires a leading `^` or trailing `$`; plain strings without `*`, `?`, `^`, `$` match substrings.
+- **Auth**: `--header` is sent on all browser requests, including third-party assets. Prefer `--storage-state` or `--user-data-dir` for authentication.
+
+```bash
+# Trial crawl into a temporary directory
+crwl2md crawl https://example.com/docs/intro -o <temp-dir> --max-pages 5
+
+# Full crawl with scope filters (glob, regex with ^/$, substring) and higher page limit
+crwl2md crawl https://example.com/docs/intro -o ./docs \
+  --max-pages 300 \
+  --include 'https://example.com/docs/**' \
+  --exclude '^https://example\.com/docs/v[0-9]+(/|$)' \
+  --exclude 'changelog'
+```
+
 ## Crawl Workflow
 
-1. Run a small trial crawl first (for example, with `--max-pages 5`) into a temporary directory, then inspect `Crawl scope:` on stderr and check a generated Markdown file (an unfetched-links warning is expected during a trial).
-2. Run the full crawl into a clean output directory (do not reuse the trial directory, because overwriting does not remove stale files).
-3. Check stderr for warnings, skipped out-of-scope URLs, and failed pages. If you hit rate limits, bot blocks, missing dynamic content, authentication walls, or scope issues, check `crwl2md crawl --help` (or `crwl2md convert --help`) for the relevant options and re-run.
+1. Run a small trial crawl (`--max-pages 5`) into a temporary directory separate from the final output, inspect `Crawl scope:` on stderr, and check a generated Markdown file (an unfetched-links warning is expected).
+2. Run the full crawl into a clean output directory (do not reuse the trial directory, because overwriting does not remove stale files). Adjust `--max-pages` (default `100`) and `--include` / `--exclude` based on the trial.
+3. Review stderr for warnings, skipped out-of-scope URLs, and failed pages. For rate limits, bot blocks, dynamic content, auth walls, or scope issues, check `crwl2md crawl --help` (or `convert --help`) and re-run.
 
 ## Output Notes
 
