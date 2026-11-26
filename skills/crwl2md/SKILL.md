@@ -8,8 +8,8 @@ license: MIT
 
 ## Prerequisites
 
-- Check availability with `crwl2md --version`. Inside the `crwl2md` repository, run it via `uv run crwl2md`.
-- If `crwl2md` is not installed, ask the user before installing it globally with `uv tool install crwl2md`.
+- Check availability with `crwl2md --version` (or `python -m crwl2md --version`). Inside the `crwl2md` repository, run it via `uv run crwl2md`.
+- If `crwl2md` is not installed, ask the user before installing with `uv tool install crwl2md` (or `pipx install crwl2md` / `pip install crwl2md` on Python 3.13+).
 - Fetching `http://` or `https://` URLs uses Playwright's Chromium browser. Only run `crwl2md setup` if `convert` or `crawl` reports a missing browser or version mismatch (on Linux with missing OS libraries, ask the user to run `crwl2md setup --with-deps`, which may prompt for `sudo`).
 - Local HTML files (`convert <path>` or `file://`) are read directly without a browser (JavaScript is not executed).
 
